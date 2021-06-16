@@ -22,16 +22,15 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
-
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v2.1.5
       # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: apt-get install node npm git -y
-
-      # Runs a set of commands using the runners shell
       - name: Run a multi-line script
-        run: npm install -g yarn
+        run:  npm install -g yarn
+        
       - name: yarn安装
         run: yarn &git submodule update --init --recursive&
       - name: 构建
