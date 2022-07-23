@@ -1,12 +1,12 @@
 import moment from 'moment'
 
-import {
+import type {
     StandardSearchResponse,
     AnnotationsSearchResponse,
     AnnotsByPageUrl,
     AnnotPage,
 } from 'src/search/background/types'
-import {
+import type {
     PageData,
     PageResult,
     PageResultsByDay,
@@ -18,10 +18,14 @@ import {
     NestedResults,
     NotesType,
 } from './types'
-import { Annotation } from 'src/annotations/types'
+import type { Annotation } from 'src/annotations/types'
 import { PAGE_SEARCH_DUMMY_DAY } from '../constants'
 import { sortByPagePosition } from 'src/sidebar/annotations-sidebar/sorting'
-import { initNormalizedState, mergeNormalizedStates } from 'src/common-ui/utils'
+import {
+    initNormalizedState,
+    mergeNormalizedStates,
+} from '@worldbrain/memex-common/lib/common-ui/utils/normalized-state'
+import { isPagePdf } from '@worldbrain/memex-common/lib/page-indexing/utils'
 
 export const notesTypeToString = (type: NotesType): string => {
     if (type === 'user') {
@@ -51,10 +55,12 @@ export const formatDayGroupTime = (day: number) =>
         sameElse: 'dddd, DD MMMM, YYYY',
     })
 
-export const getInitialFormState = (): NoteFormState => ({
+export const getInitialFormState = (inputValue = ''): NoteFormState => ({
     tags: [],
-    inputValue: '',
+    lists: [],
+    inputValue,
     isTagPickerShown: false,
+    isListPickerShown: false,
 })
 
 export const areAllNotesShown = ({ results }: RootState): boolean => {
@@ -108,25 +114,32 @@ export const getInitialPageResultState = (
     ...extra,
 })
 
-export const getInitialNoteResultState = (): NoteResult => ({
+export const getInitialNoteResultState = (inputValue = ''): NoteResult => ({
     isEditing: false,
     areRepliesShown: false,
     isTagPickerShown: false,
+    isListPickerShown: false,
     shareMenuShowStatus: 'hide',
     isCopyPasterShown: false,
-    editNoteForm: getInitialFormState(),
+    editNoteForm: getInitialFormState(inputValue),
 })
 
-const pageResultToPageData = (pageResult: AnnotPage): PageData => ({
-    tags: pageResult.tags,
-    lists: pageResult.lists,
-    fullUrl: pageResult.fullUrl,
-    fullTitle: pageResult.title,
-    normalizedUrl: pageResult.url,
-    favIconURI: pageResult.favIcon,
-    displayTime: pageResult.displayTime,
-    hasNotes: pageResult.annotsCount > 0,
-})
+const pageResultToPageData = (pageResult: AnnotPage): PageData => {
+    const isPdf = isPagePdf(pageResult)
+    return {
+        tags: pageResult.tags,
+        lists: pageResult.lists,
+        fullUrl: pageResult.fullUrl,
+        fullTitle: pageResult.title,
+        normalizedUrl: pageResult.url,
+        favIconURI: pageResult.favIcon,
+        displayTime: pageResult.displayTime,
+        hasNotes: pageResult.annotsCount > 0,
+        type: isPdf ? 'pdf' : 'page',
+        fullPdfUrl: isPdf ? pageResult.fullPdfUrl! : undefined,
+        pdfUrl: isPdf ? pageResult.pdfUrl! : undefined,
+    }
+}
 
 const annotationToNoteData = (
     annotation: Annotation,
@@ -136,25 +149,32 @@ const annotationToNoteData = (
     highlight: annotation.body,
     comment: annotation.comment,
     tags: annotation.tags ?? [],
+    lists: annotation.lists ?? [],
     selector: annotation.selector,
     createdWhen: annotation.createdWhen,
     displayTime: new Date(
         annotation.lastEdited ?? annotation.createdWhen,
     ).getTime(),
     isEdited: annotation.lastEdited != null,
+    isShared: annotation.isShared,
+    isBulkShareProtected: !!annotation.isBulkShareProtected,
     ...getInitialNoteResultState(),
     editNoteForm: {
         inputValue: annotation.comment ?? '',
         tags: annotation.tags ?? [],
+        // TODO: make into lists
+        lists: annotation.lists ?? [],
         isTagPickerShown: false,
+        isListPickerShown: false,
     },
 })
 
 export const annotationSearchResultToState: SearchResultToState = (
     result: AnnotationsSearchResponse,
 ) => {
+    // This case is for annots search with terms set
     if (!result.isAnnotsSearch) {
-        return pageSearchResultToState(result)
+        return pageSearchResultToState(result, { areNotesShown: true })
     }
 
     const pageData = initNormalizedState<PageData>()
@@ -204,6 +224,7 @@ export const annotationSearchResultToState: SearchResultToState = (
 
 export const pageSearchResultToState: SearchResultToState = (
     result: StandardSearchResponse,
+    extraPageResultState,
 ) => {
     const pageData = initNormalizedState<PageData>()
     const noteData = initNormalizedState<NoteData & NoteResult>()
@@ -218,6 +239,7 @@ export const pageSearchResultToState: SearchResultToState = (
         pageResults.byId[id] = getInitialPageResultState(
             pageResult.url,
             noteIds,
+            extraPageResultState,
         )
 
         pageData.allIds.push(id)

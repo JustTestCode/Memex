@@ -40,6 +40,7 @@ export async function getInitialState({
         isAuthenticated,
         runningRestore,
         runningBackup,
+        isDumpModalShown: false,
         screen: await getStartScreen(
             {
                 isAuthenticated,
@@ -236,25 +237,21 @@ export async function processEvent({
                 return { screen: 'restore-where' }
             },
             onBlobPreferenceChange: _onBlobPreferenceChange,
+            onDumpRequested: () => ({ isDumpModalShown: true }),
         },
         'onboarding-where': {
             onChoice: async () => {
                 // initializing the backend of the users choice
                 const location = event.choice
-                remoteFunction('setBackendLocation')(location)
+                remoteFunction('setBackendLocation')('local')
                 analytics.trackEvent({
                     category: 'Backup',
                     action: 'onboarding-where-chosen',
                 })
-
-                const isAutomaticBackupEnabled = await remoteFunction(
-                    'isAutomaticBackupEnabled',
-                )()
-                if (isAutomaticBackupEnabled) {
-                    return { screen: 'onboarding-size' }
-                } else {
-                    return { screen: 'onboarding-how' }
-                }
+                localStorage.setItem('backup.automatic-backups-enabled', 'true')
+                await remoteFunction('enableAutomaticBackup')
+                localStorage.setItem('backup.onboarding.running-backup', true)
+                return { screen: 'running-backup' }
             },
             onChangeLocalLocation: () => {
                 if (
@@ -270,6 +267,7 @@ export async function processEvent({
         'onboarding-how': {
             onChoice: async () => {
                 const { choice } = event
+                remoteFunction('setBackendLocation')('local')
 
                 await analytics.trackEvent({
                     category: 'Backup',
@@ -314,9 +312,6 @@ export async function processEvent({
             onFinish: async () => {
                 await localStorage.removeItem('backup.onboarding')
                 await localStorage.removeItem(
-                    'backup.onboarding.authenticating',
-                )
-                await localStorage.removeItem(
                     'backup.onboarding.running-backup',
                 )
                 return { screen: 'overview' }
@@ -349,8 +344,7 @@ export async function processEvent({
     }
 
     const handler = handlers[state.screen][event.type]
-    const { screen, redirect } = await handler()
-    return { screen, redirect }
+    return handler()
 }
 
 export interface ScreenConfig {
@@ -396,10 +390,10 @@ export const getScreenHandlers = ({
                 event: handlerEvent,
                 ...dependencies,
             })
-            if (result.screen) {
-                onStateChange({ screen: result.screen })
-            } else if (result.redirect) {
+            if (result.redirect) {
                 onRedirect(result.redirect)
+            } else {
+                onStateChange(result)
             }
         }
     })

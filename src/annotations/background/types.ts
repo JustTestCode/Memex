@@ -3,7 +3,7 @@ import {
     RemotePositionalFunction,
     RemoteFunction,
 } from 'src/util/webextensionRPC'
-import { Annotation, AnnotationPrivacyLevels } from 'src/annotations/types'
+import { Annotation } from 'src/annotations/types'
 import { AnnotSearchParams } from 'src/search/background/types'
 import { Anchor } from 'src/highlighting/types'
 import {
@@ -22,7 +22,12 @@ export interface AnnotationInterface<Role extends RemoteFunctionRole> {
     >
     listAnnotationsByPageUrl: RemoteFunction<
         Role,
-        { pageUrl: string; withTags?: boolean; withBookmarks?: boolean },
+        {
+            pageUrl: string
+            withTags?: boolean
+            withLists?: boolean
+            withBookmarks?: boolean
+        },
         Annotation[]
     >
     createAnnotation: RemotePositionalFunction<
@@ -35,30 +40,6 @@ export interface AnnotationInterface<Role extends RemoteFunctionRole> {
         Role,
         [{ url: string; isBookmarked: boolean }],
         string
-    >
-    findAnnotationPrivacyLevels: RemotePositionalFunction<
-        Role,
-        [{ annotationUrls: string[] }],
-        {
-            [annotationUrl: string]: AnnotationPrivacyLevels
-        }
-    >
-    updateAnnotationPrivacyLevel: RemotePositionalFunction<
-        Role,
-        [{ annotation: string; privacyLevel: AnnotationPrivacyLevels }],
-        void
-    >
-    updateAnnotationPrivacyLevels: RemotePositionalFunction<
-        Role,
-        [
-            {
-                annotationPrivacyLevels: {
-                    [annotation: string]: AnnotationPrivacyLevels
-                }
-                respectProtected?: boolean
-            },
-        ],
-        void
     >
     editAnnotation: RemotePositionalFunction<
         Role,
@@ -91,6 +72,11 @@ export interface AnnotationInterface<Role extends RemoteFunctionRole> {
     toggleSidebarOverlay: RemoteFunction<Role, { activeUrl: string }, any>
     toggleAnnotBookmark: RemotePositionalFunction<Role, any[], any>
     getAnnotBookmark: RemotePositionalFunction<Role, any[], any>
+    getListIdsForAnnotation: RemotePositionalFunction<
+        Role,
+        [{ annotationId: string }],
+        number[]
+    >
     getSharedAnnotations: RemotePositionalFunction<
         Role,
         [
@@ -108,8 +94,6 @@ export interface AnnotationInterface<Role extends RemoteFunctionRole> {
             }
         >
     >
-    insertAnnotToList: RemotePositionalFunction<Role, any[], any>
-    removeAnnotFromList: RemotePositionalFunction<Role, any[], any>
     goToAnnotationFromSidebar: RemoteFunction<
         Role,
         {
@@ -123,12 +107,11 @@ export interface AnnotationInterface<Role extends RemoteFunctionRole> {
 export interface CreateAnnotationParams {
     url?: string
     pageUrl: string
-    title?: string
+    title: string
     comment?: string
     body?: string
     selector?: Anchor
     isBookmarked?: boolean
     isSocialPost?: boolean
     createdWhen?: Date
-    privacyLevel?: AnnotationPrivacyLevels
 }

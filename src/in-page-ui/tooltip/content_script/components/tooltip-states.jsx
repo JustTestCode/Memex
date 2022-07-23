@@ -2,13 +2,38 @@ import React from 'react'
 import PropTypes from 'prop-types'
 import ButtonTooltip from 'src/common-ui/components/button-tooltip'
 import styles from './tooltip.css'
-import classNames from 'classnames'
+import styled from 'styled-components'
+import Icon from '@worldbrain/memex-common/lib/common-ui/components/icon'
 import { browser } from 'webextension-polyfill-ts'
 
-const highlighter = browser.extension.getURL('/img/highlightOn.svg')
-const annotations = browser.extension.getURL('/img/comment_add.svg')
-const share = browser.extension.getURL('/img/share.svg')
-const close = browser.extension.getURL('/img/close.svg')
+const highlighter = browser.runtime.getURL('/img/highlighterSmall.svg')
+const annotations = browser.runtime.getURL('/img/comment_empty.svg')
+const close = browser.runtime.getURL('/img/close.svg')
+
+const CreateButtons = styled.div`
+    display: flex;
+    grid-gap: 6px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+`
+
+const ButtonDiv = styled.button`
+    height: fit-content;
+    width: fit-content;
+    outline: none;
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 0px;
+`
+
+const AnnotationTooltipText = styled.span`
+    font-size: 12px;
+    font-family: 'Inter', sans-serif;
+    font-style: unset;
+    letter-spacing: 0.3px;
+`
 
 export const InitialComponent = ({
     createLink,
@@ -17,44 +42,73 @@ export const InitialComponent = ({
     closeTooltip,
     state,
 }) => (
-    <div className={styles.createButtons}>
-        <div className={styles.button} onClick={createHighlight}>
-            <ButtonTooltip tooltipText="Highlight" position="bottom">
-                <img src={highlighter} className={styles.buttonImg} />
+    <CreateButtons>
+        <ButtonDiv onClick={createHighlight}>
+            <ButtonTooltip
+                tooltipText={
+                    <AnnotationTooltipText>
+                        <strong>Highlight</strong>
+                        <br />+ shift to share
+                    </AnnotationTooltipText>
+                }
+                position="bottomHighlighter"
+            >
+                <Icon
+                    filePath={highlighter}
+                    heightAndWidth="14px"
+                    padding="5px"
+                    color={'darkerIconColor'}
+                />
             </ButtonTooltip>
-        </div>
-
-        <div className={styles.button} onClick={createAnnotation}>
-            <ButtonTooltip tooltipText="Annotate" position="bottom">
-                <img src={annotations} className={styles.buttonImg} />
+        </ButtonDiv>
+        <ButtonDiv onClick={createAnnotation}>
+            <ButtonTooltip
+                tooltipText={
+                    <AnnotationTooltipText>
+                        <strong>Annotate</strong>
+                        <br />+ shift to share
+                    </AnnotationTooltipText>
+                }
+                position="bottomHighlighter"
+            >
+                <Icon
+                    filePath={annotations}
+                    heightAndWidth="16px"
+                    color={'darkerIconColor'}
+                />
             </ButtonTooltip>
-        </div>
-        {createLink && (
+        </ButtonDiv>
+        {/* {createLink && (
             <ButtonTooltip
                 tooltipText="Create Link to Highlight"
-                position="bottom"
+                position="bottomHighlighter"
             >
                 <div className={styles.button} onClick={createLink}>
                     <img src={share} className={styles.buttonImg} />
                 </div>
             </ButtonTooltip>
-        )}
-
-        <div
-            onClick={closeTooltip}
-            className={classNames(styles.button, styles.closeBtn, {
-                [styles.noShow]: state === 'running',
-                [styles.noShow]: state === 'copied',
-            })}
-        >
+        )} */}
+        <ButtonDiv onClick={closeTooltip}>
             <ButtonTooltip
-                tooltipText="Close. Disable in Toolbar"
-                position="bottom"
+                tooltipText={
+                    <AnnotationTooltipText>
+                        <strong>Close Highlighter</strong>
+                        <br />
+                        Disable in Settings
+                    </AnnotationTooltipText>
+                }
+                position="bottomHighlighter"
             >
-                <img src={close} className={styles.buttonImg} />
+                <Icon
+                    filePath={close}
+                    heightAndWidth="12px"
+                    padding={'6px'}
+                    onClick={closeTooltip}
+                    color={'darkerIconColor'}
+                />
             </ButtonTooltip>
-        </div>
-    </div>
+        </ButtonDiv>
+    </CreateButtons>
 )
 
 InitialComponent.propTypes = {

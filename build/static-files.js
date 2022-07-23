@@ -2,11 +2,7 @@
  * Everything in here gets injected into the generated HTML as link/script tags.
  * See: https://github.com/jharris4/html-webpack-include-assets-plugin#example
  */
-export const htmlAssets = [
-    'fonts/Inter/inter.css',
-    'fonts/Poppins/poppins.css',
-    'lib/browser-polyfill.js',
-]
+export const htmlAssets = ['fonts/Inter/inter.css', 'lib/browser-polyfill.js']
 
 /**
  * Set the manifest version to be equal to `package.json` version.
@@ -49,39 +45,37 @@ export const copyPatterns = [
     },
 
     {
-        from: 'node_modules/pdfjs-dist/full-viewer/web/viewer.css',
+        from: 'node_modules/pdfjs-dist/web/viewer.css',
         to: 'pdfjs/',
     },
     {
-        from: 'node_modules/pdfjs-dist/full-viewer/es5/web/viewer.js',
+        from: 'node_modules/pdfjs-dist/web/viewer.js',
         to: 'pdfjs/',
     },
     {
-        from: 'node_modules/pdfjs-dist/full-viewer/web/viewer.html',
+        from: 'node_modules/pdfjs-dist/web/viewer.html',
         to: 'pdfjs/',
         transform: injectContentScripts,
     },
     {
-        from:
-            'node_modules/pdfjs-dist/full-viewer/web/locale/en-US/viewer.properties',
+        from: 'node_modules/pdfjs-dist/web/locale/en-US/viewer.properties',
         to: 'pdfjs/locale/locale.properties',
     },
     {
-        from:
-            'node_modules/pdfjs-dist/full-viewer/web/locale/en-US/viewer.properties',
+        from: 'node_modules/pdfjs-dist/web/locale/en-US/viewer.properties',
         to: 'pdfjs/',
     },
     {
-        from: 'node_modules/pdfjs-dist/full-viewer/web/images/*',
+        from: 'node_modules/pdfjs-dist/web/images/*',
         to: 'pdfjs/images/[name].[ext]',
     },
 
-    { from: 'node_modules/pdfjs-dist/es5/build/pdf.js', to: 'build/' },
+    { from: 'node_modules/pdfjs-dist/build/pdf.js', to: 'build/' },
+    { from: 'node_modules/pdfjs-dist/build/pdf.worker.js', to: 'build/' },
     {
-        from: 'node_modules/pdfjs-dist/es5/build/pdf.worker.min.js',
-        to: 'build/',
+        from: 'node_modules/pdfjs-dist/build/pdf.worker.js',
+        to: 'build/pdf.worker.min.js',
     },
-    { from: 'node_modules/pdfjs-dist/es5/build/pdf.worker.js', to: 'build/' },
 
     {
         from: 'fonts/*/*',
@@ -90,10 +84,6 @@ export const copyPatterns = [
     {
         from: 'fonts/Inter/*',
         to: 'fonts/Inter/[name].[ext]',
-    },
-    {
-        from: 'fonts/Poppins/*',
-        to: 'fonts/Poppins/[name].[ext]',
     },
     {
         from:

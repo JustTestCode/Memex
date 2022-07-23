@@ -7,11 +7,11 @@ import {
     SignInScreen,
     Props as SignInProps,
 } from 'src/authentication/components/SignIn'
-import styles, { fonts } from 'src/dashboard-refactor/styles'
 import { runInBackground } from 'src/util/webextensionRPC'
 import { ContentSharingInterface } from 'src/content-sharing/background/types'
 import { AuthRemoteFunctionsInterface } from 'src/authentication/background/types'
-import Button from '@worldbrain/memex-common/lib/common-ui/components/button'
+import AuthDialog from 'src/authentication/components/AuthDialog'
+import { PrimaryAction } from 'src/common-ui/components/design-library/actions/PrimaryAction'
 
 export interface Props
     extends Pick<
@@ -49,28 +49,18 @@ export default class LoginModal extends React.PureComponent<Props> {
     render() {
         return (
             <Modal {...this.props}>
-                <TitleText>
-                    Login or Sign Up
-                </TitleText>
                 {this.props.routeToLoginBtn ? (
                     <>
-                        <Margin/>
-                        <Button
-                            type="primary-action"
-                            onClick={() => this.handleGoToClick()}
-                        >
-                            Next
-                        </Button>
+                        <TitleText>Login or Sign up to Share</TitleText>
+                        <PrimaryAction
+                            onClick={this.handleGoToClick}
+                            label={'Next'}
+                        />
                     </>
                 ) : (
                     <>
-                        <SubTitleText>
-                            To sign up enter a new email address
-                        </SubTitleText>
-                        <SignInScreen
-                            {...this.props}
-                            onSuccess={this.handleLoginSuccess}
-                        />
+                        <TitleText>Login or Sign up to Share</TitleText>
+                        <AuthDialog onAuth={() => this.handleLoginSuccess()} />
                     </>
                 )}
             </Modal>
@@ -80,20 +70,9 @@ export default class LoginModal extends React.PureComponent<Props> {
 
 const TitleText = styled.div`
     font-family: ${(props) => props.theme.fonts.primary};
-    color: ${(props) => props.theme.colors.primary};
-    font-size: 18px;
-    font-weight: 600;
+    color: ${(props) => props.theme.colors.darkerText};
+    font-size: 20px;
+    font-weight: bold;
 
-    padding-bottom: ${(props) => props.routeToLoginBtn ? '20px' : '0px'}
-`
-
-const SubTitleText = styled.div`
-    font-family: ${(props) => props.theme.fonts.primary};
-    color: ${(props) => props.theme.colors.darkGrey};
-    font-size: 14px;
-    padding-bottom: 20px;
-`
-
-const Margin = styled.div`
-    height: 20px;
+    padding-bottom: 30px;
 `

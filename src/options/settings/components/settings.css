@@ -2,7 +2,7 @@
 @value color1, color2, color6, color4 from colors;
 
 .container * {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', sans-serif;
 }
 
 .section {
@@ -11,6 +11,13 @@
     border-radius: 5px;
     padding: 20px 25px;
     margin-bottom: 15px;
+}
+
+.rightBox {
+    display: grid;
+    justify-content: flex-end;
+    align-items: center;
+    grid-auto-flow: column;
 }
 
 .sectionTitle {
@@ -76,7 +83,7 @@
     font-weight: bold;
 }
 
-.block input {
+/* .block input {
     margin-right: 10px;
     vertical-align: middle;
     margin-left: 10px;
@@ -84,9 +91,9 @@
     padding: 5px 10px;
     border-radius: 3px;
     border: 1px solid #d2d2d2;
-    width: 180px;
+    width: 130px;
     text-align: center;
-}
+} */
 
 .featureBlock {
     display: flex;
@@ -245,4 +252,10 @@
     font-size: 12px;
     padding-left: 25px;
     margin-top: 5px;
+}
+
+.kbShortcutSubText {
+    font-size: 85%;
+    color: #545454;
+    width: 100px;
 }

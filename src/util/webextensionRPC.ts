@@ -20,23 +20,16 @@
 
 import mapValues from 'lodash/fp/mapValues'
 import { browser } from 'webextension-polyfill-ts'
-import { RemoteFunctionImplementations } from 'src/util/remote-functions-background'
-import TypedEventEmitter from 'typed-emitter'
 import { EventEmitter } from 'events'
-import { AuthRemoteEvents } from 'src/authentication/background/types'
-import { InitialSyncEvents } from '@worldbrain/storex-sync/lib/integration/initial-sync'
-import { ContentSharingEvents } from 'src/content-sharing/background/types'
-import { PortBasedRPCManager } from 'src/util/rpc/rpc'
+import { PortBasedRPCManager, RpcSideName, RpcRole } from 'src/util/rpc/rpc'
+import type { RemoteFunctionImplementations } from 'src/util/remote-functions-background'
+import type { Arguments, default as TypedEventEmitter } from 'typed-emitter'
+import type { AuthRemoteEvents } from 'src/authentication/background/types'
+import type { ContentSharingEvents } from 'src/content-sharing/background/types'
+import type { PersonalCloudBackgroundEvents } from '../personal-cloud/background/types'
 
 export class RpcError extends Error {
-    constructor(message) {
-        super(message)
-        this.name = this.constructor.name
-    }
-}
-
-export class RemoteError extends Error {
-    constructor(message) {
+    constructor(message: string) {
         super(message)
         this.name = this.constructor.name
     }
@@ -126,17 +119,26 @@ interface RPCOpts {
 export function runInBackground<T extends object>(): T {
     return new Proxy<T>({} as T, {
         get(target, property): (...args: any[]) => Promise<any> {
-            return async (...args) =>
-                rpcConnection.postMessageRequestToExtension(
+            return async (...args) => {
+                if (!rpcConnection) {
+                    throw new Error(
+                        `runInBackground: RPC connection has not been setup.\nfn name: ${property.toString()}\nargs: ${args}\n\nIf you are calling direct from content-script code, instead pass it down from the global content-script.\n`,
+                    )
+                }
+                return rpcConnection.postMessageRequestToExtension(
                     property.toString(),
                     args,
                 )
+            }
         },
     })
 }
 
 // Runs a remoteFunction in the content script on a certain tab
-export function runInTab<T extends object>(tabId): T {
+export function runInTab<T extends object>(
+    tabId: number,
+    opts?: { quietConsole?: boolean },
+): T {
     return new Proxy<T>({} as T, {
         get(target, property): any {
             return (...args) =>
@@ -144,6 +146,7 @@ export function runInTab<T extends object>(tabId): T {
                     tabId,
                     property.toString(),
                     args,
+                    opts?.quietConsole,
                 )
         },
     })
@@ -243,6 +246,12 @@ export function makeRemotelyCallable<T>(
     // })
 }
 
+export function clearRemotelyCallableFunctions() {
+    for (const key of Object.keys(remotelyCallableFunctions)) {
+        delete remotelyCallableFunctions[key]
+    }
+}
+
 export class RemoteFunctionRegistry {
     registerRemotelyCallable(functions, { insertExtraArg = false } = {}) {
         makeRemotelyCallable(functions, { insertExtraArg })
@@ -264,45 +273,61 @@ export function fakeRemoteFunctions(functions: {
     }
 }
 
-export interface RemoteEventEmitter<T> {
-    emit: (eventName: keyof T, data: any) => Promise<any>
+export interface RemoteEventEmitter<T extends keyof RemoteEvents> {
+    emit<EventName extends keyof RemoteEvents[T]>(
+        eventName: EventName,
+        ...args: Arguments<RemoteEvents[T][EventName]>
+    ): Promise<void>
 }
 const __REMOTE_EVENT__ = '__REMOTE_EVENT__'
 const __REMOTE_EVENT_TYPE__ = '__REMOTE_EVENT_TYPE__'
 const __REMOTE_EVENT_NAME__ = '__REMOTE_EVENT_NAME__'
 
 // Sending Side, (e.g. background script)
-export function remoteEventEmitter<T>(
-    eventType: string,
+export function remoteEventEmitter<ModuleName extends keyof RemoteEvents>(
+    moduleName: ModuleName,
     { broadcastToTabs = false } = {},
-): RemoteEventEmitter<T> {
+): RemoteEventEmitter<ModuleName> {
     const message = {
         __REMOTE_EVENT__,
-        __REMOTE_EVENT_TYPE__: eventType,
+        __REMOTE_EVENT_TYPE__: moduleName,
     }
 
     if (broadcastToTabs) {
         return {
-            emit: async (eventName, data) => {
+            emit: async (eventName, ...args: any[]) => {
                 const tabs = (await browser.tabs.query({})) ?? []
                 for (const { id: tabId } of tabs) {
-                    browser.tabs.sendMessage(tabId, {
-                        ...message,
-                        __REMOTE_EVENT_NAME__: eventName,
-                        data,
-                    })
+                    try {
+                        await browser.tabs.sendMessage(tabId, {
+                            ...message,
+                            __REMOTE_EVENT_NAME__: eventName,
+                            data: args[0],
+                        })
+                    } catch (err) {
+                        console.error(
+                            `Remote event emitter "${moduleName}" failed to emit event "${eventName}" to tab ${tabId}:\n\tError message: "${err.message}"`,
+                        )
+                    }
                 }
             },
         }
     }
 
     return {
-        emit: async (eventName, data) =>
-            browser.runtime.sendMessage({
-                ...message,
-                __REMOTE_EVENT_NAME__: eventName,
-                data,
-            }),
+        emit: async (eventName, ...args: any[]) => {
+            try {
+                await browser.runtime.sendMessage({
+                    ...message,
+                    __REMOTE_EVENT_NAME__: eventName,
+                    data: args[0],
+                })
+            } catch (err) {
+                console.error(
+                    `Remote event emitter "${moduleName}" failed to emit event "${eventName}":\n\tError message: "${err.message}"`,
+                )
+            }
+        },
     }
 }
 
@@ -316,10 +341,10 @@ export type TypedRemoteEventEmitter<
 > = TypedEventEmitter<RemoteEvents[T]>
 
 // Statically defined types for now, move this to a registry
-interface RemoteEvents {
+export interface RemoteEvents {
     auth: AuthRemoteEvents
-    sync: InitialSyncEvents
     contentSharing: ContentSharingEvents
+    personalCloud: PersonalCloudBackgroundEvents
 }
 
 function registerRemoteEventForwarder() {
@@ -361,23 +386,19 @@ export function getRemoteEventEmitter<EventType extends keyof RemoteEvents>(
 // Containing the evil globals here
 let rpcConnection: PortBasedRPCManager
 export const setupRpcConnection = (options: {
-    sideName: string
-    role: 'content' | 'background'
+    sideName: RpcSideName
+    role: RpcRole
+    paused?: boolean
 }) => {
-    rpcConnection = new PortBasedRPCManager(
-        options.sideName,
-        (name) => remotelyCallableFunctions[name],
-        browser.runtime.connect,
-        browser.runtime.onConnect,
-    )
-
-    if (options.role === 'content') {
-        rpcConnection.registerConnectionToBackground()
-    }
-
-    if (options.role === 'background') {
-        rpcConnection.registerListenerForIncomingConnections()
-    }
+    rpcConnection = new PortBasedRPCManager({
+        sideName: options.sideName,
+        role: options.role,
+        getRegisteredRemoteFunction: (name) => remotelyCallableFunctions[name],
+        connect: browser.runtime.connect,
+        onConnect: browser.runtime.onConnect,
+        paused: options.paused,
+    })
+    rpcConnection.setup()
 
     return rpcConnection
 }

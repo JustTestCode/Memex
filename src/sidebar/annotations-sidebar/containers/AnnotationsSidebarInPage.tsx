@@ -1,6 +1,7 @@
 import * as React from 'react'
 import ReactDOM from 'react-dom'
 
+import { theme } from 'src/common-ui/components/design-library/theme'
 import { HighlightInteractionsInterface } from 'src/highlighting/types'
 import {
     SharedInPageUIEvents,
@@ -14,10 +15,10 @@ import {
 import { AnnotationsSidebarInPageEventEmitter } from '../types'
 import { Annotation } from 'src/annotations/types'
 import ShareAnnotationOnboardingModal from 'src/overview/sharing/components/ShareAnnotationOnboardingModal'
-import BetaFeatureNotifModal from 'src/overview/sharing/components/BetaFeatureNotifModal'
 import { UpdateNotifBanner } from 'src/common-ui/containers/UpdateNotifBanner'
 import LoginModal from 'src/overview/sharing/components/LoginModal'
-import { SidebarDisplayMode } from './types'
+import DisplayNameModal from 'src/overview/sharing/components/DisplayNameModal'
+import type { SidebarContainerLogic } from './logic'
 
 export interface Props extends ContainerProps {
     events: AnnotationsSidebarInPageEventEmitter
@@ -28,9 +29,14 @@ export interface Props extends ContainerProps {
 export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
     Props
 > {
-    static defaultProps: Partial<Props> = {
+    static defaultProps: Pick<
+        Props,
+        'isLockable' | 'theme' | 'sidebarContext'
+    > = {
+        sidebarContext: 'in-page',
         isLockable: true,
         theme: {
+            ...theme,
             rightOffsetPx: 0,
             canClickAnnotations: true,
             paddingRight: 40,
@@ -40,12 +46,6 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
     constructor(props: Props) {
         super({
             ...props,
-            showLoginModal: () =>
-                this.processEvent('setLoginModalShown', { shown: true }),
-            showBetaFeatureNotifModal: () =>
-                this.processEvent('setBetaFeatureNotifModalShown', {
-                    shown: true,
-                }),
             showAnnotationShareModal: () =>
                 this.processEvent('setAnnotationShareModalShown', {
                     shown: true,
@@ -101,21 +101,17 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
                 })
             }),
         )
-        sidebarEvents.on(
-            'renderHighlights',
-            async ({ highlights, displayMode }) => {
-                await highlighter.renderHighlights(
-                    highlights,
-                    ({ annotationUrl }) => {
-                        inPageUI.showSidebar({
-                            displayMode,
-                            annotationUrl,
-                            action: 'show_annotation',
-                        })
-                    },
-                )
-            },
-        )
+        sidebarEvents.on('renderHighlights', async ({ highlights }) => {
+            await highlighter.renderHighlights(
+                highlights,
+                ({ annotationUrl }) => {
+                    inPageUI.showSidebar({
+                        annotationUrl,
+                        action: 'show_annotation',
+                    })
+                },
+            )
+        })
     }
 
     cleanupEventForwarding = () => {
@@ -136,11 +132,8 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
 
     private activateAnnotation(
         url: string,
-        annotationMode: 'edit' | 'show',
-        displayMode: SidebarDisplayMode = 'private-notes',
+        annotationMode: 'edit' | 'edit_spaces' | 'show',
     ) {
-        this.processEvent('setDisplayMode', { mode: displayMode })
-
         if (annotationMode === 'show') {
             this.processEvent('switchAnnotationMode', {
                 annotationUrl: url,
@@ -152,6 +145,10 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
                 annotationUrl: url,
                 context: 'pageAnnotations',
             })
+
+            if (annotationMode === 'edit_spaces') {
+                this.processEvent('setListPickerAnnotationId', { id: url })
+            }
         }
 
         this.processEvent('setActiveAnnotationUrl', { annotationUrl: url })
@@ -167,24 +164,20 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
         })
     }
 
-    private handleExternalAction = (event: SidebarActionOptions) => {
+    private handleExternalAction = async (event: SidebarActionOptions) => {
+        await (this.logic as SidebarContainerLogic).annotationsLoadComplete
+
         if (event.action === 'comment') {
             this.processEvent('addNewPageComment', {
                 comment: event.annotationData?.commentText,
                 tags: event.annotationData?.tags,
             })
         } else if (event.action === 'show_annotation') {
-            this.activateAnnotation(
-                event.annotationUrl,
-                'show',
-                event.displayMode,
-            )
+            this.activateAnnotation(event.annotationUrl, 'show')
         } else if (event.action === 'edit_annotation') {
-            this.activateAnnotation(
-                event.annotationUrl,
-                'edit',
-                'private-notes',
-            )
+            this.activateAnnotation(event.annotationUrl, 'edit')
+        } else if (event.action === 'edit_annotation_spaces') {
+            this.activateAnnotation(event.annotationUrl, 'edit_spaces')
         } else if (event.action === 'set_sharing_access') {
             this.processEvent('receiveSharingAccessChange', {
                 sharingAccess: event.annotationSharingAccess,
@@ -224,8 +217,14 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
         }
     }
 
-    protected bindAnnotationFooterEventProps(annotation: Annotation) {
-        const boundProps = super.bindAnnotationFooterEventProps(annotation)
+    protected bindAnnotationFooterEventProps(
+        annotation: Annotation,
+        followedListId?: string,
+    ) {
+        const boundProps = super.bindAnnotationFooterEventProps(
+            annotation,
+            followedListId,
+        )
 
         return {
             ...boundProps,
@@ -239,6 +238,7 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
     protected renderModals() {
         return (
             <>
+                {super.renderModals()}
                 {this.state.showLoginModal && (
                     <LoginModal
                         routeToLoginBtn
@@ -247,6 +247,17 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
                         contentScriptBG={this.props.contentScriptBackground}
                         onClose={() =>
                             this.processEvent('setLoginModalShown', {
+                                shown: false,
+                            })
+                        }
+                    />
+                )}
+                {this.state.showDisplayNameSetupModal && (
+                    <DisplayNameModal
+                        ignoreReactPortal
+                        authBG={this.props.auth}
+                        onClose={() =>
+                            this.processEvent('setDisplayNameSetupModalShown', {
                                 shown: false,
                             })
                         }
@@ -275,24 +286,6 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
                         }}
                     />
                 )}
-                {this.state.showBetaFeatureNotifModal && (
-                    <BetaFeatureNotifModal
-                        auth={this.props.auth}
-                        contentScriptBackground={
-                            this.props.contentScriptBackground
-                        }
-                        ignoreReactPortal
-                        betaRequestStrategy="go-to-options-page"
-                        onClose={() =>
-                            this.processEvent('setBetaFeatureNotifModalShown', {
-                                shown: false,
-                            })
-                        }
-                        showSubscriptionModal={() =>
-                            console.log('UPGRADE BTN PRESSED')
-                        }
-                    />
-                )}
             </>
         )
     }
@@ -300,7 +293,12 @@ export class AnnotationsSidebarInPage extends AnnotationsSidebarContainer<
     protected renderTopBanner() {
         return (
             <UpdateNotifBanner
-                theme={{ position: 'fixed', width: '410px', iconSize: '20px' }}
+                theme={{
+                    ...theme,
+                    position: 'fixed',
+                    width: 'fill-available',
+                    iconSize: '20px',
+                }}
             />
         )
     }

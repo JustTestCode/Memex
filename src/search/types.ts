@@ -34,7 +34,7 @@ export interface SearchParams {
     startDate?: number
     skip?: number
     limit?: number
-    lists: string[]
+    lists: number[]
 }
 
 export interface FilteredIDs<T = string> {
@@ -134,7 +134,6 @@ export interface PageCreationProps {
     tabId?: number
     stubOnly?: boolean
     allowScreenshot?: boolean
-    save?: boolean
     visitTime?: number | '$now'
 }
 

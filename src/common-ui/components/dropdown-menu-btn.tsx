@@ -27,6 +27,9 @@ export interface Props<T extends MenuItemProps = MenuItemProps> {
     tooltipProps?: ButtonTooltipProps
     initSelectedIndex?: number
     btnId?: string
+    menuTitle?: string
+    width?: string
+    onClickOutside?: React.MouseEventHandler
 }
 
 interface State {
@@ -99,7 +102,7 @@ export class DropdownMenuBtn extends React.PureComponent<Props, State> {
                         : false,
                 }}
             >
-                <MenuItemName>
+                <MenuItemName isSelected={this.state.selected === i}>
                     {props.name}
                     {props.isDisabled && props.soonAvailable && (
                         <SoonPill>Coming Soon</SoonPill>
@@ -109,46 +112,50 @@ export class DropdownMenuBtn extends React.PureComponent<Props, State> {
             </MenuItem>
         ))
 
-    private renderMenuBtn = () => {
-        const btn = (
-            <MenuBtn id={this.props.btnId} onClick={this.toggleMenu}>
-                {this.props.btnChildren}
-            </MenuBtn>
-        )
+    // private renderMenuBtn = () => {
+    //     const btn = (
+    //         <MenuBtn
+    //             isOpen={this.state.isOpen}
+    //             id={this.props.btnId}
+    //             onClick={this.toggleMenu}
+    //         >
+    //             {this.props.btnChildren}
+    //         </MenuBtn>
+    //     )
 
-        if (this.props.tooltipProps) {
-            return (
-                <ButtonTooltip {...this.props.tooltipProps}>
-                    {btn}
-                </ButtonTooltip>
-            )
-        }
+    //     if (this.props.tooltipProps) {
+    //         return (
+    //             <ButtonTooltip {...this.props.tooltipProps}>
+    //                 {btn}
+    //             </ButtonTooltip>
+    //         )
+    //     }
 
-        return btn
-    }
+    //     return btn
+    // }
 
     render() {
         return (
             <ThemeProvider theme={this.theme}>
-                <MenuContainer>
-                    {this.renderMenuBtn()}
-                    {this.isOpen && (
-                        <ClickAway onClickAway={this.toggleMenu}>
-                            <Menu
-                                onMouseEnter={(e) => {
-                                    e.preventDefault()
-                                    e.stopPropagation
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.preventDefault()
-                                    e.stopPropagation
-                                }}
-                            >
-                                {this.props.children ?? this.renderMenuItems()}
-                            </Menu>
-                        </ClickAway>
-                    )}
-                </MenuContainer>
+                <ClickAway onClickAway={this.props.onClickOutside}>
+                    <Menu
+                        onMouseEnter={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation
+                        }}
+                        onMouseLeave={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation
+                        }}
+                        width={this.props.width}
+                        leftPosition={this.theme.leftMenuOffset}
+                    >
+                        {this.props.menuTitle && (
+                            <MenuTitle>{this.props.menuTitle}</MenuTitle>
+                        )}
+                        {this.props.children ?? this.renderMenuItems()}
+                    </Menu>
+                </ClickAway>
             </ThemeProvider>
         )
     }
@@ -167,15 +174,21 @@ const MenuItem = styled.li`
     ${({ theme }) =>
         theme.isDisabled
             ? 'color: #97b2b8;'
-            : '&:hover { background: #e0e0e0; cursor: pointer; }'};
-    ${({ theme }) => theme.isSelected && 'background: #f0f0f0;'};
-    padding: 10px 20px;
+            : '&:hover { background: #F8FBFF; cursor: pointer; }'};
+    ${({ theme }) => theme.isSelected && 'background: #e5f0ff80;'};
+    padding: 10px 10px;
     line-height: 20px;
-    width: 100%;
+    width: fill-available;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     justify-content: space-between;
+    border-radius: 5px;
+`
+
+const MenuTitle = styled.div`
+    padding: 8px 15px 0px 15px;
+    margin-bottom: 10px;
 `
 
 const SoonPill = styled.span`
@@ -190,12 +203,12 @@ const SoonPill = styled.span`
     font-size: 10px;
 `
 
-const MenuItemName = styled.div`
-    font-weight: 500;
+const MenuItemName = styled.div<{ isSelected }>`
+    font-weight: ${(props) => (props.isSelected ? '500' : '400')};
+    color: ${(props) => (props.isSelected ? '#347AE2' : '#96A0B5')};
     font-size: 14px;
     display: flex;
     align-items: center;
-    font-weight: bold;
 `
 
 const MenuItemInfo = styled.div`
@@ -204,52 +217,32 @@ const MenuItemInfo = styled.div`
     padding-top: 5px;
 `
 
-const MenuBtn = styled.div`
+const MenuBtn = styled.div<{ isOpen: boolean }>`
     box-sizing: border-box;
     cursor: pointer;
     font-size: 14px;
     border: none;
     outline: none;
-    background: transparent;
     border-radius: 3px;
     display: flex;
     align-items: center;
     justify-content: center;
     height: 100%;
     width: 100%;
-
-    &:focus {
-        background-color: grey;
-    }
-
-    &:hover {
-        background-color: #e0e0e0;
-    }
-
-    &:focus {
-        background-color: #79797945;
-    }
-
-    & div {
-        padding: 0 5px;
-    }
 `
 
-const Menu = styled.ul`
+const Menu = styled.div<{ leftPosition: string }>`
     position: absolute;
-    ${({ theme }) => `left: ${theme.leftMenuOffset ?? 0};`}
     width: max-content;
     list-style: none;
-    padding: 10px 0;
     background: white;
-    border-radius: 3px;
-    box-shadow: rgba(15, 15, 15, 0.05) 0px 0px 0px 1px,
-        rgba(15, 15, 15, 0.1) 0px 3px 6px, rgba(15, 15, 15, 0.2) 0px 9px 24px;
+    border-radius: 8px;
+    box-shadow: 0px 22px 26px 18px rgba(0, 0, 0, 0.03);
     background: white;
-    overflow: hidden;
-    overflow-y: scroll;
-    z-index: 10;
-    margin-top: 5px;
+    width: ${(props) => props.width ?? 'max-content'};
     flex-direction: column;
     top: 25px;
+    left: ${(props) => props.leftPosition};
+    z-index: 1000;
+    padding: 10px;
 `

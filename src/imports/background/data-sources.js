@@ -1,5 +1,5 @@
 import moment from 'moment'
-import browserIsChrome from '../../util/check-browser'
+import checkBrowser from '../../util/check-browser'
 import {
     IMPORT_TYPE as TYPE,
     IMPORT_SERVICES as SERVICES,
@@ -7,6 +7,16 @@ import {
 import { loadBlob } from 'src/imports/background/utils'
 import { parsePocket, parseNetscape } from './service-parsers'
 
+const getDirNestedCollectionName = (dirNode) => {
+    const parentCollectionName = dirNode.collectionName ?? ''
+    const subCollectionName = dirNode.title ?? ''
+    const collectionName =
+        parentCollectionName !== ''
+            ? `${parentCollectionName} > ${subCollectionName}`
+            : subCollectionName
+    // if collectionName is empty, return undefined so that it can be in no collection
+    return collectionName || undefined
+}
 export default class ImportDataSources {
     static LOOKBACK_WEEKS = 12 // Browser history is limited to the last 3 months
 
@@ -22,7 +32,7 @@ export default class ImportDataSources {
      */
     get ROOT_BM() {
         return {
-            id: browserIsChrome() ? '0' : '',
+            id: checkBrowser() === 'firefox' ? '' : '0',
         }
     }
 
@@ -36,12 +46,10 @@ export default class ImportDataSources {
         this._bookmarks = bookmarks
     }
 
-    _createHistParams = time => ({
+    _createHistParams = (time) => ({
         ...ImportDataSources.DEF_HIST_PARAMS,
         endTime: time,
-        startTime: moment(time)
-            .subtract(1, 'week')
-            .valueOf(),
+        startTime: moment(time).subtract(1, 'week').valueOf(),
     })
 
     /**
@@ -82,15 +90,22 @@ export default class ImportDataSources {
         const childGroups = children.reduce(
             (prev, childNode) => {
                 const stateKey = !childNode.url ? 'dirs' : 'bms'
-
+                const collectionName = getDirNestedCollectionName(dirNode)
+                // only add to collection if it's not a dir
+                const newNode = {
+                    ...childNode,
+                    collectionName,
+                    ...(collectionName && {
+                        collections: [collectionName],
+                    }),
+                }
                 return {
                     ...prev,
-                    [stateKey]: [...prev[stateKey], childNode],
+                    [stateKey]: [...prev[stateKey], newNode],
                 }
             },
             { dirs: [], bms: [] },
         )
-
         yield childGroups.bms
 
         // Recursively process next levels (not expected to get deep)

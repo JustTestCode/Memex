@@ -8,6 +8,11 @@ export interface Props {
     bottom?: string
     width?: string
     withRelativeContainer?: boolean
+    position?: string
+    height?: string
+    overflow?: string
+    padding?: string
+    onMouseLeave?: () => void
 }
 
 export class HoverBox extends React.Component<Props> {
@@ -19,42 +24,58 @@ export class HoverBox extends React.Component<Props> {
         }
 
         return (
-            <HoverBoxContainer>
+            <HoverBoxContainer
+                onMouseLeave={this.props.onMouseLeave}
+                {...this.props}
+            >
                 <HoverBoxDiv {...this.props}>{this.props.children}</HoverBoxDiv>
             </HoverBoxContainer>
         )
     }
 }
 
-export const HoverBoxContainer = styled.div`
-    position: relative;
+export const HoverBoxContainer = styled.div<Props>`
+    position: ${(props) => (props.position ? props.position : 'relative')};
+    overflow: ${(props) => (props.overflow ? props.overflow : 'visible')};
 `
 
 export const HoverBoxDiv = styled.div<Props>`
-    box-shadow: rgba(15, 15, 15, 0.05) 0px 0px 0px 1px,
-        rgba(15, 15, 15, 0.1) 0px 3px 6px, rgba(15, 15, 15, 0.2) 0px 9px 24px;
-    overflow: visible;
-    position: absolute;
-    border-radius: 3px;
+    box-shadow: 0px 22px 26px 18px rgba(0, 0, 0, 0.03);
+    border-radius: 12px;
+    overflow: ${(props) => (props.overflow ? props.overflow : 'visible')};;
+    position: ${(props) => (props.position ? props.position : 'absolute')};;
     width: ${(props) => (props.width ? props.width : '300px')};
+    height: ${(props) => (props.height ? props.height : 'fit-content')};
     ${(props) => (props.top ? `top: ${props.top};` : '')}
     ${(props) => (props.left ? `left: ${props.left};` : '')}
     ${(props) => (props.right ? `right: ${props.right};` : '')}
     ${(props) => (props.bottom ? `bottom: ${props.bottom};` : '')}
     background-color: #fff;
-    border-radius: 3px;
-    z-index: 3;
+    z-index: 1001;
+    padding: ${(props) => (props.padding ? props.padding : '10px 0px')};
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+
+    scrollbar-width: none;
 `
 
 export const HoverBoxDashboard = styled.div`
-    box-shadow: rgba(15, 15, 15, 0.05) 0px 0px 0px 1px,
-        rgba(15, 15, 15, 0.1) 0px 3px 6px, rgba(15, 15, 15, 0.2) 0px 9px 24px;
-    overflow: visible;
+    box-shadow: 0px 22px 26px 18px rgba(0, 0, 0, 0.03);
+    overflow: scroll;
     position: absolute;
     width: 300px;
     z-index: 1;
     background-color: #fff;
-    border-radius: 3px;
+    border-radius: 12px;
     right: 20px;
+    padding: 10px 0px;
     top: 40px;
+
+    &::-webkit-scrollbar {
+        display: none;
+    }
+
+    scrollbar-width: none;
 `

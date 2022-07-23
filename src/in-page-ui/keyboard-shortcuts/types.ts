@@ -1,18 +1,1 @@
-export interface Shortcut {
-    enabled: boolean
-    shortcut: string
-}
-
-export interface KeyboardShortcuts {
-    shortcutsEnabled?: boolean
-    createAnnotation: Shortcut
-    createHighlight: Shortcut
-    toggleHighlights: Shortcut
-    addToCollection: Shortcut
-    createBookmark: Shortcut
-    toggleSidebar: Shortcut
-    openDashboard: Shortcut
-    addComment: Shortcut
-    addTag: Shortcut
-    link: Shortcut
-}
+export * from '@worldbrain/memex-common/lib/browser-extension/keyboard-shortcuts/types'

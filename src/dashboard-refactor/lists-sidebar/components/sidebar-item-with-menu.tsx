@@ -1,19 +1,18 @@
 import React, { PureComponent } from 'react'
 import styled, { css, keyframes } from 'styled-components'
-
 import styles, { fonts } from 'src/dashboard-refactor/styles'
 import colors from 'src/dashboard-refactor/colors'
-
-import { Icon } from 'src/dashboard-refactor/styled-components'
-import Margin from 'src/dashboard-refactor/components/Margin'
-import {
-    ListSource,
-    DropReceivingState,
-    SelectedState,
-} from 'src/dashboard-refactor/types'
+import Icon from '@worldbrain/memex-common/lib/common-ui/components/icon'
+import { DropReceivingState, SelectedState } from 'src/dashboard-refactor/types'
 import { Props as EditableItemProps } from './sidebar-editable-item'
-import { ListNameHighlightIndices } from '../types'
+import { ListData, ListNameHighlightIndices } from '../types'
 import * as icons from 'src/common-ui/components/design-library/icons'
+import SpaceContextMenuButton from './space-context-menu-btn'
+import { ButtonTooltip } from 'src/common-ui/components'
+import {
+    contentSharing,
+    collections,
+} from 'src/util/remote-functions-background'
 
 export interface Props {
     className?: string
@@ -21,7 +20,7 @@ export interface Props {
     newItemsCount?: number
     name: string
     listId: number
-    source?: ListSource
+    listData?: ListData
     hasActivity?: boolean
     isMenuDisplayed?: boolean
     isCollaborative?: boolean
@@ -29,26 +28,25 @@ export interface Props {
     onUnfollowClick?: React.MouseEventHandler
     onRenameClick?: React.MouseEventHandler
     onDeleteClick?: React.MouseEventHandler
-    onShareClick?: React.MouseEventHandler
+    onDeleteConfirm?: React.MouseEventHandler
+    onSpaceShare?: (remoteListId: string) => Promise<void>
     dropReceivingState?: DropReceivingState
     editableProps?: EditableItemProps
     selectedState: SelectedState
-    onMoreActionClick?: (listId: number) => void
+    changeListName?: (value: string) => void
+    onMoreActionClick?: React.MouseEventHandler
+    shareList?: () => Promise<void>
 }
 
 export default class ListsSidebarItemWithMenu extends PureComponent<Props> {
     private handleSelection: React.MouseEventHandler = (e) =>
         this.props.selectedState.onSelection(this.props.listId)
 
-    private handleMoreActionClick: React.MouseEventHandler = (e) => {
-        e.stopPropagation()
-        this.props.onMoreActionClick(this.props.listId)
-    }
-
     private handleDragEnter: React.DragEventHandler = (e) => {
         e.preventDefault()
+        e.stopPropagation()
         // Needed to push this op back on the event queue, so it fires after the previous
-        //  list item's `onDropLeave` event
+        //  list item's `onDropLeave` event
         setTimeout(() => this.props.dropReceivingState?.onDragEnter(), 0)
     }
 
@@ -57,48 +55,7 @@ export default class ListsSidebarItemWithMenu extends PureComponent<Props> {
         if (!this.props.dropReceivingState?.canReceiveDroppedItems) {
             return
         }
-
         this.props.dropReceivingState?.onDrop(e.dataTransfer)
-    }
-
-    private renderMenuBtns() {
-        if (!this.props.source) {
-            return false
-        }
-
-        if (this.props.source === 'followed-lists') {
-            return (
-                <MenuButton onClick={this.props.onUnfollowClick}>
-                    <Margin horizontal="10px">
-                        <Icon heightAndWidth="12px" path={'TODO.svg'} />
-                    </Margin>
-                    Unfollow
-                </MenuButton>
-            )
-        }
-
-        return (
-            <>
-                <MenuButton onClick={this.props.onShareClick}>
-                    <Margin horizontal="10px">
-                        <Icon heightAndWidth="12px" path={icons.link} />
-                    </Margin>
-                    Share
-                </MenuButton>
-                <MenuButton onClick={this.props.onDeleteClick}>
-                    <Margin horizontal="10px">
-                        <Icon heightAndWidth="12px" path={icons.remove} />
-                    </Margin>
-                    Delete
-                </MenuButton>
-                <MenuButton onClick={this.props.onRenameClick}>
-                    <Margin horizontal="10px">
-                        <Icon heightAndWidth="12px" path={icons.edit} />
-                    </Margin>
-                    Rename
-                </MenuButton>
-            </>
-        )
     }
 
     private renderIcon() {
@@ -106,12 +63,9 @@ export default class ListsSidebarItemWithMenu extends PureComponent<Props> {
             dropReceivingState,
             onMoreActionClick,
             newItemsCount,
-            hasActivity,
+            onSpaceShare,
+            listData,
         } = this.props
-
-        if (hasActivity) {
-            return <ActivityBeacon />
-        }
 
         if (newItemsCount) {
             return (
@@ -124,18 +78,102 @@ export default class ListsSidebarItemWithMenu extends PureComponent<Props> {
         }
 
         if (dropReceivingState?.wasPageDropped) {
-            return <Icon heightAndWidth="12px" path={icons.check} />
+            return <Icon heightAndWidth="14px" filePath={icons.check} />
         }
 
         if (
             dropReceivingState?.canReceiveDroppedItems &&
             dropReceivingState?.isDraggedOver
         ) {
-            return <Icon heightAndWidth="12px" path={icons.plus} />
+            return <Icon heightAndWidth="14px" filePath={icons.plus} />
         }
 
         if (onMoreActionClick) {
-            return <Icon paddingHorizontal="10px" heightAndWidth="12px" path={icons.dots} />
+            return (
+                <SpaceContextMenuButton
+                    contentSharingBG={contentSharing}
+                    spacesBG={collections}
+                    spaceName={listData.name}
+                    localListId={listData.id}
+                    remoteListId={listData.remoteId}
+                    onClose={this.props.editableProps!.onCancelClick}
+                    toggleMenu={this.props.onMoreActionClick}
+                    editableProps={this.props.editableProps!}
+                    isMenuDisplayed={this.props.isMenuDisplayed}
+                    onSpaceShare={onSpaceShare}
+                />
+            )
+        }
+    }
+
+    private renderListIcon(listId) {
+        if (listId === 20201015) {
+            return (
+                <IconContainer>
+                    <Icon
+                        filePath={icons.phone}
+                        heightAndWidth="18px"
+                        hoverOff
+                        color={
+                            this.props.selectedState.isSelected
+                                ? 'purple'
+                                : null
+                        }
+                    />
+                </IconContainer>
+            )
+        }
+        if (listId === 20201014) {
+            return (
+                <IconContainer>
+                    <Icon
+                        filePath={icons.inbox}
+                        heightAndWidth="18px"
+                        hoverOff
+                        color={
+                            this.props.selectedState.isSelected
+                                ? 'purple'
+                                : null
+                        }
+                    />
+                </IconContainer>
+            )
+        }
+        if (listId === -1) {
+            return (
+                <IconContainer>
+                    <Icon
+                        filePath={icons.heartEmpty}
+                        heightAndWidth="18px"
+                        hoverOff
+                        color={
+                            this.props.selectedState.isSelected
+                                ? 'purple'
+                                : null
+                        }
+                    />
+                </IconContainer>
+            )
+        }
+
+        if (listId === 20201016) {
+            if (this.props.hasActivity) {
+                return (
+                    <IconContainer>
+                        <ActivityBeacon />
+                    </IconContainer>
+                )
+            } else {
+                return (
+                    <IconContainer>
+                        <Icon
+                            filePath={icons.emptyCircle}
+                            heightAndWidth="16px"
+                            hoverOff
+                        />
+                    </IconContainer>
+                )
+            }
         }
     }
 
@@ -143,19 +181,25 @@ export default class ListsSidebarItemWithMenu extends PureComponent<Props> {
         const { dropReceivingState } = this.props
 
         const collaborationIcon = this.props.isCollaborative && (
-            <Icon faded="0.7" heightAndWidth="12px" path={icons.shared} />
+            <>
+                <ButtonTooltip tooltipText={'Shared Space'} position="bottom">
+                    <Icon heightAndWidth="14px" icon={'people'} hoverOff />
+                </ButtonTooltip>
+            </>
         )
 
         if (!this.props.nameHighlightIndices) {
             return (
                 <ListTitle
                     selectedState={this.props.selectedState}
-                    dropReceivingState={dropReceivingState}
-                    onDragLeave={dropReceivingState?.onDragLeave}
-                    onDragEnter={this.handleDragEnter}
-                    onDragOver={(e) => e.preventDefault()} // Needed to allow the `onDrop` event to fire
-                    onDrop={this.handleDrop}
+                    // dropReceivingState={dropReceivingState}
+                    // onDragLeave={dropReceivingState?.onDragLeave}
+                    // onDragEnter={this.handleDragEnter}
+                    // onDragOver={(e) => e.preventDefault()} // Needed to allow the `onDrop` event to fire
+                    // onDrop={this.handleDrop}
+                    {...this.props}
                 >
+                    {this.renderListIcon(this.props.listId)}
                     <Name>{this.props.name}</Name>
                     {collaborationIcon}
                 </ListTitle>
@@ -163,6 +207,7 @@ export default class ListsSidebarItemWithMenu extends PureComponent<Props> {
         }
 
         const [from, to] = this.props.nameHighlightIndices
+
         const [namePre, nameHighlighted, namePost] = [
             this.props.name.slice(0, from),
             this.props.name.slice(from, to),
@@ -173,7 +218,7 @@ export default class ListsSidebarItemWithMenu extends PureComponent<Props> {
             <ListTitle selectedState={this.props.selectedState}>
                 {namePre.length > 0 && <span>{namePre}</span>}
                 <span style={{ fontWeight: fonts.primary.weight.bold }}>
-                    {nameHighlighted}
+                    {nameHighlighted} test
                 </span>
                 {namePost.length > 0 && <span>{namePost}</span>}
                 {collaborationIcon}
@@ -196,34 +241,28 @@ export default class ListsSidebarItemWithMenu extends PureComponent<Props> {
                     isMenuDisplayed={isMenuDisplayed}
                     selectedState={selectedState}
                     dropReceivingState={dropReceivingState}
-                    title={this.props.name}
+                    //title={this.props.name}
                     onClick={this.handleSelection}
                     onDragEnter={this.handleDragEnter}
+                    onDragLeave={dropReceivingState?.onDragLeave}
+                    onDragOver={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                    }} // Needed to allow the `onDrop` event to fire
+                    onDrop={this.handleDrop}
                 >
-                    {dropReceivingState?.isDraggedOver && (
-                        <DropZoneMask
-                            dropReceivingState={dropReceivingState}
-                            onDragLeave={dropReceivingState?.onDragLeave}
-                            onDragEnter={this.handleDragEnter}
-                            onDragOver={(e) => e.preventDefault()} // Needed to allow the `onDrop` event to fire
-                            onDrop={this.handleDrop}
-                            onClick={this.handleSelection}
-                        />
-                    )}
                     <TitleBox> {this.renderTitle()}</TitleBox>
+
                     <IconBox
                         dropReceivingState={dropReceivingState}
                         newItemsCount={newItemsCount}
                         hasActivity={hasActivity}
-                        onClick={this.handleMoreActionClick}
+                        // onClick={this.handleMoreActionClick}
                         right="10px"
                     >
                         {this.renderIcon()}
                     </IconBox>
                 </SidebarItem>
-                <MenuContainer isDisplayed={isMenuDisplayed}>
-                    {this.renderMenuBtns()}
-                </MenuContainer>
             </Container>
         )
     }
@@ -237,10 +276,12 @@ const Name = styled.div`
     display: block;
     overflow-x: hidden;
     text-overflow: ellipsis;
-    padding-right: 5px;
+    color: ${(props) => props.theme.colors.normalText};
 `
 
 const MenuContainer = styled.div`
+    display: 'flex';
+    flex-direction: 'column';
     width: min-content;
     position: absolute;
     background-color: ${colors.white};
@@ -249,18 +290,10 @@ const MenuContainer = styled.div`
     left: 105px;
     top: 30px;
     z-index: 1;
-
-    ${(props) =>
-        css`
-            display: ${props.isDisplayed
-                ? `flex; flex-direction: column`
-                : `none`};
-        `};
 `
 
 const IconBox = styled.div<Props>`
     display: ${(props) =>
-        props.hasActivity ||
         props.newItemsCount ||
         props.dropReceivingState?.isDraggedOver ||
         props.dropReceivingState?.wasPageDropped
@@ -271,79 +304,92 @@ const IconBox = styled.div<Props>`
     justify-content: flex-end;
     padding-right: 10px;
     padding-left: 5px;
+    z-index: 1;
 `
 
 const DropZoneMask = styled.div`
     height: inherit;
     width: inherit;
     position: absolute;
+    background: red;
+    width: fill-available;
+    z-index: 2;
 `
 
-const TitleBox = styled.div`
+const TitleBox = styled.div<Props>`
     display: flex;
-    flex: 1;
-    width: 100%;
+    flex: 0 1 100%;
+    width: 91%;
     height: 100%;
     padding-left: 15px;
     align-items: center;
-    padding-right: 10px;
+    color: ${(props) => props.theme.colors.normalText};
 `
 
 const SidebarItem = styled.div<Props>`
-    height: 30px;
-    width: 100%;
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-    background-color: transparent;
+ height: 40px;
+margin: 0 10px;
+border-radius: 5px;
+ display: flex;
+ flex-direction: row;
+ justify-content: space-between;
+ align-items: center;
+ background-color: ${(props) =>
+     props.dropReceivingState?.isDraggedOver
+         ? props.theme.colors.backgroundColorDarker
+         : 'transparent'};
 
-    &:hover {
-        background-color: ${colors.onHover};
-    }
+ &:hover {
+    background-color: ${(props) => props.theme.colors.lightHover};
+ }
 
-    ${({ isMenuDisplayed, dropReceivingState }) =>
-        css`
-            background-color: ${isMenuDisplayed ||
-            (dropReceivingState?.canReceiveDroppedItems &&
-                dropReceivingState?.isDraggedOver)
-                ? `${colors.onHover}`
-                : `transparent`};
-        `};
 
-    &:hover ${IconBox} {
-        display: ${(props) =>
-            !(
-                props.hasActivity ||
-                props.newItemsCount ||
-                props.dropReceivingState?.isDraggedOver
-            )
-                ? 'flex'
-                : 'None'};
-    }
 
-    &:hover ${TitleBox} {
-        width: 70%;
-    }
 
-    ${({ selectedState }: Props) =>
-        selectedState?.isSelected &&
-        css`
-            background-color: ${colors.onSelect};
-        `}
 
-    ${({ dropReceivingState }: Props) =>
-        dropReceivingState?.wasPageDropped &&
-        css`
-            animation: ${blinkingAnimation} 0.2s 2;
-        `}
 
-    cursor: ${({ dropReceivingState }: Props) =>
-        !dropReceivingState?.isDraggedOver
-            ? `pointer`
-            : dropReceivingState?.canReceiveDroppedItems
-            ? `pointer`
-            : `not-allowed`};
+ ${({ isMenuDisplayed, dropReceivingState }) =>
+     css`
+         background-color: ${isMenuDisplayed ||
+         (dropReceivingState?.canReceiveDroppedItems &&
+             dropReceivingState?.isDraggedOver)
+             ? `${(props) => props.theme.colors.lightHover}`
+             : `transparent`};
+     `};
+
+
+
+ &:hover ${IconBox} {
+
+ display: ${(props) =>
+     !props.dropReceivingState?.isDraggedOver ? 'flex' : 'None'};
+
+ }
+
+
+
+ &:hover ${TitleBox} {
+
+ width: 70%;
+
+ }
+
+
+
+ ${({ selectedState }: Props) =>
+     selectedState?.isSelected &&
+     css`
+         color: ${(props) => props.theme.colors.darkText};
+     `}
+
+
+ cursor: ${({ dropReceivingState }: Props) =>
+     !dropReceivingState?.isDraggedOver
+         ? `pointer`
+         : dropReceivingState?.canReceiveDroppedItems
+         ? `pointer`
+         : `not-allowed`};
+
 `
 
 const MenuButton = styled.div`
@@ -351,7 +397,7 @@ const MenuButton = styled.div`
     width: 100%;
     font-family: ${fonts.primary.name};
     font-weight: ${fonts.primary.weight.normal};
-    font-size: 12px;
+    font-size: 14px;
     line-height: 18px;
     display: flex;
     flex-direction: row;
@@ -359,15 +405,12 @@ const MenuButton = styled.div`
     align-items: center;
     cursor: pointer;
     padding: 0px 10px 0 0;
-
-    &: ${SidebarItem} {
+    & ${SidebarItem} {
         background-color: red;
     }
-
     &:hover {
-        background-color: ${colors.onHover};
+        background-color: ${(props) => props.theme.colors.lightHover};
     }
-
     & > div {
         width: auto;
     }
@@ -375,59 +418,82 @@ const MenuButton = styled.div`
 
 const ListTitle = styled.span<Props>`
     display: flex;
+    grid-gap: 10px;
     align-items: center;
     margin: 0;
     font-family: ${fonts.primary.name};
+    font-weight: 400;
     font-style: normal;
     ${({ selectedState }: Props) =>
-        selectedState.isSelected &&
-        `font-weight: ${fonts.primary.weight.bold};`}
-    font-size: 12px;
-    line-height: 18px;
-    height: 18px;
+        selectedState.isSelected && `font-weight: 600;`}
+    font-size:  14px;
+    line-height: 22px;
+    height: 22px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    padding-right: 5px;
+    padding-right: 20px;
     justify-content: flex-start;
     width: 100%;
     pointer-events: none;
+`
 
+const IconContainer = styled.div`
+    height: 20px;
+    width: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+`
+
+const ActivityBeaconEmpty = styled.div`
+    height: 14px;
+    width: 14px;
+    border-radius: 20px;
+    border: 1.5px solid ${(props) => props.theme.colors.iconColor};
 `
 
 const ActivityBeacon = styled.div`
     width: 14px;
     height: 14px;
-    border-radius: 10px;
-    padding: 8px;
-    background-color: ${(props) => props.theme.colors.secondary};
+    border-radius: 20px;
+    background-color: ${(props) => props.theme.colors.purple};
 `
 
 const NewItemsCount = styled.div`
-    width: 30px;
+    width: fit-content;
+    min-width: 20px;
     height: 14px;
     border-radius: 10px;
     display: flex;
     justify-content: flex-end;
     align-items: center;
+    background-color: ${(props) => props.theme.colors.purple};
+    padding: 2px 8px;
+    color: white;
+    text-align: center;
+    font-weight: 600;
+    justify-content: center;
 `
 
 const NewItemsCountInnerDiv = styled.div`
     font-family: ${fonts.primary.name};
-    font-weight: ${fonts.primary.weight.bold};
-    font-size: 14px;
+    font-weight: 500;
+    font-size: 12px;
     line-height: 14px;
+    padding: 2px 0px;
 `
 
 // probably want to use timing function to get this really looking good. This is just quick and dirty
+
 const blinkingAnimation = keyframes`
-    0% {
-        background-color: ${colors.onHover};
-    }
-    50% {
-        background-color: transparent;
-    }
-    100% {
-        background-color: ${colors.onHover};
-    }
+ 0% {
+    background-color: ${(props) => props.theme.colors.backgroundColorDarker};
+ }
+ 50% {
+    background-color: transparent;
+ }
+ 100% {
+    background-color: ${(props) => props.theme.colors.backgroundColorDarker};
+ }
 `

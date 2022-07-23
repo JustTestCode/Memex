@@ -2,10 +2,8 @@ import React, { Component, MouseEventHandler } from 'react'
 import cx from 'classnames'
 
 import analytics from 'src/analytics'
-import {
-    Annotation as AnnotationFlawed,
-    AnnotationPrivacyLevels,
-} from 'src/annotations/types'
+import { Annotation as AnnotationFlawed } from 'src/annotations/types'
+import { AnnotationPrivacyLevels } from '@worldbrain/memex-common/lib/annotations/types'
 import {
     AnnotationSharingInfo,
     AnnotationSharingAccess,
@@ -17,8 +15,9 @@ import {
     contentSharing,
     auth,
     tags,
+    collections,
 } from 'src/util/remote-functions-background'
-import SingleNoteShareMenu from 'src/overview/sharing/SingleNoteShareMenu'
+// import SingleNoteShareMenu from 'src/overview/sharing/SingleNoteShareMenu'
 import { INIT_FORM_STATE } from 'src/sidebar/annotations-sidebar/containers/logic'
 import type {
     EditForm,
@@ -29,6 +28,9 @@ import { copyToClipboard } from 'src/annotations/content_script/utils'
 import { ContentSharingInterface } from 'src/content-sharing/background/types'
 import { RemoteCopyPasterInterface } from 'src/copy-paster/background/types'
 import TagPicker from 'src/tags/ui/TagPicker'
+import CollectionPicker from 'src/custom-lists/ui/CollectionPicker'
+import { linkStreams } from 'openpgp'
+import { getAnnotationPrivacyState } from '@worldbrain/memex-common/lib/content-sharing/utils'
 
 const styles = require('./annotation-list.css')
 
@@ -41,6 +43,7 @@ type Annotation = Omit<AnnotationFlawed, 'isBookmarked'> & {
 export interface Props {
     activeShareMenuNoteId: string | undefined
     activeTagPickerNoteId: string | undefined
+    activeListPickerNoteId: string | undefined
     activeCopyPasterAnnotationId: string | undefined
     /** Override for expanding annotations by default */
     isExpandedOverride: boolean
@@ -54,6 +57,7 @@ export interface Props {
     handleEditAnnotation: (url: string, comment: string, tags: string[]) => void
     handleDeleteAnnotation: (url: string) => void
     setActiveTagPickerNoteId: (id: string) => void
+    setActiveListPickerNoteId: (id: string) => void
     setActiveShareMenuNoteId?: (id: string) => void
     setActiveCopyPasterAnnotationId?: (id: string) => void
     contentSharing: ContentSharingInterface
@@ -82,6 +86,7 @@ interface State {
 class AnnotationList extends Component<Props, State> {
     private authBG = auth
     private tagsBG = tags
+    private collectionsBG = collections
     private contentShareBG = contentSharing
 
     state: State = {
@@ -106,7 +111,7 @@ class AnnotationList extends Component<Props, State> {
             (acc, curr) => ({ ...acc, [curr.url]: 'default' }),
             {},
         ),
-        sharingAccess: 'feature-disabled',
+        sharingAccess: 'sharing-allowed',
         annotationsSharingInfo: {},
     }
 
@@ -126,15 +131,7 @@ class AnnotationList extends Component<Props, State> {
     }
 
     async componentDidMount() {
-        await this.detectPageSharingStatus()
         await this.detectSharedAnnotations()
-    }
-
-    private async detectPageSharingStatus() {
-        const isAllowed = await this.authBG.isAuthorizedForFeature('beta')
-        this.setState({
-            sharingAccess: isAllowed ? 'sharing-allowed' : 'feature-disabled',
-        })
     }
 
     private async detectSharedAnnotations() {
@@ -241,6 +238,9 @@ class AnnotationList extends Component<Props, State> {
     private handleTagPickerClick = (url: string) => () => {
         this.props.setActiveTagPickerNoteId(url)
     }
+    private handleListPickerClick = (url: string) => () => {
+        this.props.setActiveListPickerNoteId(url)
+    }
 
     private handleEditCancel = (url: string, commentText: string) => () =>
         this.setState((state) => ({
@@ -268,7 +268,7 @@ class AnnotationList extends Component<Props, State> {
         return (
             <div className={styles.hoverBoxWrapper}>
                 <HoverBox>
-                    <TagPicker
+                    {/* <TagPicker
                         onUpdateEntrySelection={(args) =>
                             this.tagsBG.updateTagForPage({
                                 ...args,
@@ -279,11 +279,51 @@ class AnnotationList extends Component<Props, State> {
                         onClickOutside={() =>
                             this.props.setActiveTagPickerNoteId(undefined)
                         }
-                    />
+                    /> */}
                 </HoverBox>
             </div>
         )
     }
+    private renderListPicker(annot: Annotation) {
+        if (this.props.activeListPickerNoteId !== annot.url) {
+            return null
+        }
+
+        return (
+            <div className={styles.hoverBoxWrapper}>
+                <HoverBox>
+                    {/* <CollectionPicker
+                        onUpdateEntrySelection={async (args) => {
+                            //  TODO implement picker
+                            const name = args.added ?? args.deleted
+                            const list = await this.collectionsBG.fetchListByName(
+                                { name },
+                            )
+                            const id = list.id
+                            if (args.added != null) {
+                                this.contentShareBG.shareAnnotationToSomeLists({
+                                    annotationUrl: annot.url,
+                                    localListIds: [id],
+                                })
+                            } else if (args.deleted != null) {
+                                this.contentShareBG.unshareAnnotationFromSomeLists(
+                                    {
+                                        annotationUrl: annot.url,
+                                        localListIds: [id],
+                                    },
+                                )
+                            }
+                        }}
+                        initialSelectedEntries={() => annot.lists}
+                        onClickOutside={() =>
+                            this.props.setActiveListPickerNoteId(undefined)
+                        }
+                    /> */}
+                </HoverBox>
+            </div>
+        )
+    }
+
     private renderCopyPasterManager(annot: Annotation) {
         if (this.props.activeCopyPasterAnnotationId !== annot.url) {
             return null
@@ -315,7 +355,7 @@ class AnnotationList extends Component<Props, State> {
         return (
             <div className={styles.hoverBoxWrapper}>
                 <HoverBox>
-                    <SingleNoteShareMenu
+                    {/* <SingleNoteShareMenu
                         contentSharingBG={this.props.contentSharing}
                         copyLink={async (link) => {
                             analytics.trackEvent({
@@ -326,31 +366,24 @@ class AnnotationList extends Component<Props, State> {
                             await copyToClipboard(link)
                         }}
                         annotationUrl={annot.url}
-                        postShareHook={({ privacyLevel, shareStateChanged }) =>
-                            this.updateAnnotationShareState(annot.url)({
-                                status: shareStateChanged
+                        postShareHook={(state) => {
+                            const privacyState = getAnnotationPrivacyState(
+                                state.privacyLevel,
+                            )
+                            return this.updateAnnotationShareState(annot.url)({
+                                status: privacyState.public
                                     ? 'shared'
-                                    : undefined,
+                                    : 'unshared',
                                 taskState: 'success',
-                                privacyLevel,
-                            })
-                        }
-                        postUnshareHook={({
-                            privacyLevel,
-                            shareStateChanged,
-                        }) =>
-                            this.updateAnnotationShareState(annot.url)({
-                                status: shareStateChanged
-                                    ? 'unshared'
+                                privacyLevel: privacyState.protected
+                                    ? AnnotationPrivacyLevels.PROTECTED
                                     : undefined,
-                                taskState: 'success',
-                                privacyLevel,
                             })
-                        }
+                        }}
                         closeShareMenu={() =>
                             this.props.setActiveShareMenuNoteId?.(undefined)
                         }
-                    />
+                    /> */}
                 </HoverBox>
             </div>
         )
@@ -374,15 +407,19 @@ class AnnotationList extends Component<Props, State> {
     private renderAnnotations() {
         return this.state.annotations.map((annot) => (
             <AnnotationEditable
+                getListDetailsById={(i) => ({
+                    name: 'dead code',
+                    isShared: false,
+                })}
                 key={annot.url}
                 {...annot}
                 body={annot.body}
                 comment={annot.comment}
                 className={styles.annotation}
                 createdWhen={annot.createdWhen!}
+                isShared={false}
+                isBulkShareProtected={false}
                 mode={this.state.annotationModes[annot.url]}
-                sharingAccess={this.state.sharingAccess}
-                sharingInfo={this.state.annotationsSharingInfo[annot.url]}
                 onGoToAnnotation={this.handleGoToAnnotation(annot)}
                 renderShareMenuForAnnotation={() => this.renderShareMenu(annot)}
                 renderCopyPasterForAnnotation={() =>
@@ -390,6 +427,9 @@ class AnnotationList extends Component<Props, State> {
                 }
                 renderTagsPickerForAnnotation={() =>
                     this.renderTagPicker(annot)
+                }
+                renderListsPickerForAnnotation={() =>
+                    this.renderListPicker(annot)
                 }
                 annotationEditDependencies={{
                     comment: this.state.editForms[annot.url].commentText,
@@ -401,7 +441,7 @@ class AnnotationList extends Component<Props, State> {
                         annot.url,
                         annot.comment,
                     ),
-                    onEditConfirm: this.handleEditAnnotation(annot.url),
+                    onEditConfirm: () => this.handleEditAnnotation(annot.url),
                 }}
                 annotationFooterDependencies={{
                     onEditIconClick: () =>
@@ -410,11 +450,6 @@ class AnnotationList extends Component<Props, State> {
                                 [annot.url]: 'edit',
                             },
                         }),
-                    onEditCancel: this.handleEditCancel(
-                        annot.url,
-                        annot.comment,
-                    ),
-                    onEditConfirm: this.handleEditAnnotation(annot.url),
                     onDeleteCancel: this.handleEditCancel(
                         annot.url,
                         annot.comment,
@@ -425,6 +460,7 @@ class AnnotationList extends Component<Props, State> {
                             annotationModes: { [annot.url]: 'delete' },
                         }),
                     onTagIconClick: this.handleTagPickerClick(annot.url),
+                    onListIconClick: this.handleListPickerClick(annot.url),
                     onShareClick: this.handleShareClick(annot.url),
                     onCopyPasterBtnClick:
                         this.props.setActiveCopyPasterAnnotationId != null

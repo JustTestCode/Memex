@@ -18,7 +18,7 @@ import { PAGE_1 } from 'src/annotations/background/index.test.data'
 import {
     SPECIAL_LIST_NAMES,
     SPECIAL_LIST_IDS,
-} from '@worldbrain/memex-storage/lib/lists/constants'
+} from '@worldbrain/memex-common/lib/storage/modules/lists/constants'
 
 const customLists = (setup: BackgroundIntegrationTestSetup) =>
     setup.backgroundModules.customLists
@@ -38,6 +38,7 @@ function testSetupFactory() {
             tabManagement: setup.backgroundModules.tabManagement,
             tabsAPI: setup.browserAPIs.tabs,
             tabs: TEST_TABS,
+            includeTitle: true,
         })
     }
 }
@@ -53,6 +54,13 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                 steps: [
                     {
                         execute: async ({ setup }) => {
+                            // TODO: properly get this working in test env (currently waits forever)
+                            setup.backgroundModules.pages.waitForContentIdentifier = (async (
+                                a,
+                            ) => a) as any
+                            setup.backgroundModules.tabManagement.injectContentScripts = () =>
+                                undefined
+
                             listId = await customLists(
                                 setup,
                             ).remoteFunctions.createCustomList({
@@ -62,7 +70,7 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                             await customLists(
                                 setup,
                             ).remoteFunctions.addOpenTabsToList({
-                                name: testList,
+                                listId,
                                 time: 555,
                             })
                         },
@@ -141,6 +149,13 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                 steps: [
                     {
                         execute: async ({ setup }) => {
+                            // TODO: properly get this working in test env (currently waits forever)
+                            setup.backgroundModules.pages.waitForContentIdentifier = (async (
+                                a,
+                            ) => a) as any
+                            setup.backgroundModules.tabManagement.injectContentScripts = () =>
+                                undefined
+
                             listId = await customLists(
                                 setup,
                             ).remoteFunctions.createCustomList({
@@ -150,7 +165,7 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                             await customLists(
                                 setup,
                             ).remoteFunctions.addOpenTabsToList({
-                                name: testList,
+                                listId,
                                 time: 555,
                             })
                             await customLists(
@@ -246,7 +261,7 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                                             searchableName: TEST_LIST_1,
                                             isDeletable: true,
                                             isNestable: true,
-                                            nameTerms: ['custom', 'list'],
+                                            nameTerms: ['my', 'custom', 'list'],
                                         },
                                     },
                                 }),
@@ -282,7 +297,7 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                                     id: expect.any(Number),
                                     name: TEST_LIST_1,
                                     searchableName: TEST_LIST_1,
-                                    nameTerms: ['custom', 'list'],
+                                    nameTerms: ['my', 'custom', 'list'],
                                     createdAt: expect.any(Date),
                                     isDeletable: true,
                                     isNestable: true,
@@ -361,7 +376,11 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                                         updates: {
                                             name: TEST_LIST_2,
                                             searchableName: TEST_LIST_2,
-                                            nameTerms: { 0: 'updated' },
+                                            nameTerms: {
+                                                0: 'updated',
+                                                1: 'list',
+                                                2: 'title',
+                                            },
                                         },
                                     },
                                 }),
@@ -416,9 +435,10 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                                             hasBookmark: false,
                                             screenshot: undefined,
                                             lists: [
-                                                SPECIAL_LIST_NAMES.INBOX,
-                                                TEST_LIST_2,
+                                                SPECIAL_LIST_IDS.INBOX,
+                                                listId,
                                             ],
+                                            title: DATA.PAGE_1.title,
                                             tags: [],
                                             url: TEST_TABS[0].normalized,
                                             fullUrl: TEST_TABS[0].url,
@@ -480,7 +500,7 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                                     id: expect.any(Number),
                                     name: TEST_LIST_1,
                                     searchableName: TEST_LIST_1,
-                                    nameTerms: ['custom', 'list'],
+                                    nameTerms: ['my', 'custom', 'list'],
                                     isDeletable: true,
                                     isNestable: true,
                                     createdAt: expect.any(Date),
@@ -517,8 +537,8 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                                             hasBookmark: false,
                                             screenshot: undefined,
                                             lists: [
-                                                SPECIAL_LIST_NAMES.INBOX,
-                                                TEST_LIST_1,
+                                                SPECIAL_LIST_IDS.INBOX,
+                                                listId,
                                             ],
                                             tags: [],
                                             title: 'first page title',
@@ -535,7 +555,6 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                 }
             },
         ),
-
         backgroundIntegrationTest(
             'should create a list, add an entry to it, then remove the list and its entries',
             () => {
@@ -570,7 +589,7 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite(
                                     id: listId,
                                     name: 'My Custom List',
                                     searchableName: 'My Custom List',
-                                    nameTerms: ['custom', 'list'],
+                                    nameTerms: ['my', 'custom', 'list'],
                                     isDeletable: true,
                                     isNestable: true,
                                     createdAt: expect.any(Date),

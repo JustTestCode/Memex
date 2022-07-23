@@ -15,24 +15,21 @@ import AnnotationEdit, {
     AnnotationEditEventProps,
 } from 'src/annotations/components/AnnotationEdit'
 import TextTruncated from 'src/annotations/components/parts/TextTruncated'
-import { SidebarAnnotationTheme, AnnotationPrivacyLevels } from '../types'
-import type {
-    AnnotationSharingInfo,
-    AnnotationSharingAccess,
-} from 'src/content-sharing/ui/types'
-import {
-    SharingProps,
-    SHARE_BUTTON_LABELS,
-    getShareButtonIcon,
-    getShareAnnotationBtnState,
-    getShareAnnotationBtnAction,
-} from '../sharing-utils'
+import SaveBtn from 'src/annotations/components/save-btn'
+import type { SidebarAnnotationTheme, ListDetailsGetter } from '../types'
 import { ButtonTooltip } from 'src/common-ui/components'
-import LoadingIndicator from 'src/common-ui/components/LoadingIndicator'
+import LoadingIndicator from '@worldbrain/memex-common/lib/common-ui/components/loading-indicator'
 import TagsSegment from 'src/common-ui/components/result-item-tags-segment'
 import Margin from 'src/dashboard-refactor/components/Margin'
 import type { NoteResultHoverState } from './types'
-import { getKeyName } from 'src/util/os-specific-key-names'
+import { getKeyName } from '@worldbrain/memex-common/lib/utils/os-specific-key-names'
+import { getShareButtonData } from '../sharing-utils'
+import { HoverBox } from 'src/common-ui/components/design-library/HoverBox'
+import QuickTutorial from '@worldbrain/memex-common/lib/editor/components/QuickTutorial'
+import { ClickAway } from 'src/util/click-away-wrapper'
+import { getKeyboardShortcutsState } from 'src/in-page-ui/keyboard-shortcuts/content_script/detection'
+import ListsSegment from 'src/common-ui/components/result-item-spaces-segment'
+import Icon from '@worldbrain/memex-common/lib/common-ui/components/icon'
 
 export interface HighlightProps extends AnnotationProps {
     body: string
@@ -44,20 +41,24 @@ export interface NoteProps extends AnnotationProps {
 }
 
 export interface AnnotationProps {
+    zIndex?: number
     tags: string[]
+    lists: number[]
     createdWhen: Date | number
     mode: AnnotationMode
     hoverState: NoteResultHoverState
-    sharingAccess: AnnotationSharingAccess
-    sharingInfo?: AnnotationSharingInfo
     /** Required to decide how to go to an annotation when it's clicked. */
     url?: string
     className?: string
     isActive?: boolean
+    isShared: boolean
     hasReplies?: boolean
+    appendRepliesToggle?: boolean
+    isBulkShareProtected: boolean
     repliesLoadingState?: UITaskState
     onReplyBtnClick?: React.MouseEventHandler
     isClickable?: boolean
+    contextLocation?: string
     lastEdited?: Date | number
     annotationFooterDependencies?: AnnotationFooterEventProps
     annotationEditDependencies?: AnnotationEditGeneralProps &
@@ -68,8 +69,10 @@ export interface AnnotationProps {
     }
     onHighlightClick?: React.MouseEventHandler
     onGoToAnnotation?: React.MouseEventHandler
+    getListDetailsById: ListDetailsGetter
     onTagClick?: (tag: string) => void
     renderTagsPickerForAnnotation?: (id: string) => JSX.Element
+    renderListsPickerForAnnotation?: (id: string) => JSX.Element
     renderCopyPasterForAnnotation?: (id: string) => JSX.Element
     renderShareMenuForAnnotation?: (id: string) => JSX.Element
 }
@@ -79,7 +82,13 @@ export interface AnnotationEditableEventProps {
     onFooterHover?: React.MouseEventHandler
     onNoteHover?: React.MouseEventHandler
     onTagsHover?: React.MouseEventHandler
+    onListsHover?: React.MouseEventHandler
     onUnhover?: React.MouseEventHandler
+}
+
+interface State {
+    editorHeight: string
+    showQuickTutorial: boolean
 }
 
 export type Props = (HighlightProps | NoteProps) & AnnotationEditableEventProps
@@ -90,29 +99,40 @@ export default class AnnotationEditable extends React.Component<Props> {
     static MOD_KEY = getKeyName({ key: 'mod' })
     static defaultProps: Pick<
         Props,
-        'mode' | 'hoverState' | 'sharingAccess' | 'tags'
+        'mode' | 'hoverState' | 'tags' | 'lists'
     > = {
         tags: [],
+        lists: [],
         mode: 'default',
         hoverState: null,
-        sharingAccess: 'feature-disabled',
     }
 
-    focus() {
-        this.annotEditRef?.current?.focusOnInputEnd()
+    state: State = {
+        editorHeight: '50px',
+        showQuickTutorial: false,
     }
 
-    private get sharingData() {
-        const sharingProps: SharingProps = {
-            sharingInfo: this.props.sharingInfo,
-            sharingAccess: this.props.sharingAccess,
-            onShare: this.props.annotationFooterDependencies?.onShareClick,
-            onUnshare: this.props.annotationFooterDependencies?.onShareClick,
-        }
-        return {
-            state: getShareAnnotationBtnState(sharingProps),
-            action: getShareAnnotationBtnAction(sharingProps),
-        }
+    focusEditForm() {
+        this.annotEditRef?.current?.focusEditor()
+    }
+
+    componentDidMount() {
+        this.textAreaHeight()
+    }
+
+    private get displayLists(): Array<{
+        id: number
+        name: string
+        isShared: boolean
+    }> {
+        return this.props.lists.map((id) => ({
+            id,
+            ...this.props.getListDetailsById(id),
+        }))
+    }
+
+    private get hasSharedLists(): boolean {
+        return this.displayLists.some((list) => list.isShared)
     }
 
     private get creationInfo() {
@@ -138,6 +158,10 @@ export default class AnnotationEditable extends React.Component<Props> {
                   }
                 : undefined,
         }
+    }
+
+    private toggleShowTutorial() {
+        this.setState({ showQuickTutorial: !this.state.showQuickTutorial })
     }
 
     private get theme(): SidebarAnnotationTheme {
@@ -168,18 +192,31 @@ export default class AnnotationEditable extends React.Component<Props> {
                             position="bottom"
                         >
                             <HighlightAction right="2px">
-                                <GoToHighlightIcon onClick={onGoToAnnotation} />
+                                <Icon
+                                    onClick={onGoToAnnotation}
+                                    filePath={icons.goTo}
+                                    heightAndWidth={'16px'}
+                                />
                             </HighlightAction>
                         </ButtonTooltip>
                     )}
                     {footerDeps?.onEditIconClick && (
                         <ButtonTooltip
-                            tooltipText="Add/Edit Note"
-                            position="bottom"
+                            tooltipText={
+                                <span>
+                                    <strong>Add/Edit Note</strong>
+                                    <br />
+                                    or double-click card
+                                </span>
+                            }
+                            position="leftBig"
                         >
                             <HighlightAction>
-                                <AddNoteIcon
+                                <Icon
                                     onClick={footerDeps.onEditIconClick}
+                                    icon={'edit'}
+                                    heightAndWidth={'16px'}
+                                    padding={'5px'}
                                 />
                             </HighlightAction>
                         </ButtonTooltip>
@@ -208,9 +245,22 @@ export default class AnnotationEditable extends React.Component<Props> {
         )
     }
 
+    private textAreaHeight() {
+        let lines = 1
+
+        try {
+            lines = this.props.comment.split(/\r\n|\r|\n/).length
+        } catch {
+            lines = 1
+        }
+
+        const height = lines * 20
+        const heightinPX = (height + 'px').toString()
+        this.setState({ editorHeight: heightinPX })
+    }
+
     private renderNote() {
         const {
-            url,
             mode,
             comment,
             annotationEditDependencies,
@@ -220,10 +270,12 @@ export default class AnnotationEditable extends React.Component<Props> {
         if (mode === 'edit') {
             return (
                 <AnnotationEdit
-                    url={url}
                     ref={this.annotEditRef}
                     {...annotationEditDependencies}
                     rows={2}
+                    editorHeight={this.state.editorHeight}
+                    isShared={this.props.isShared}
+                    isBulkShareProtected={this.props.isBulkShareProtected}
                 />
             )
         }
@@ -240,10 +292,13 @@ export default class AnnotationEditable extends React.Component<Props> {
                             tooltipText="Edit Note"
                             position="bottom"
                         >
-                            <EditNoteIcon
+                            <Icon
                                 onClick={
-                                    annotationFooterDependencies.onEditIconClick
+                                    annotationFooterDependencies?.onEditIconClick
                                 }
+                                icon={'edit'}
+                                heightAndWidth={'16px'}
+                                padding={'5px'}
                             />
                         </ButtonTooltip>
                     </EditNoteIconBox>
@@ -262,46 +317,63 @@ export default class AnnotationEditable extends React.Component<Props> {
     private calcFooterActions(): ItemBoxBottomAction[] {
         const {
             annotationFooterDependencies: footerDeps,
+            isBulkShareProtected,
             repliesLoadingState,
+            appendRepliesToggle,
             onReplyBtnClick,
+            hoverState,
             hasReplies,
+            isShared,
         } = this.props
 
+        const repliesToggle: ItemBoxBottomAction =
+            repliesLoadingState === 'running'
+                ? { node: <LoadingIndicator size={16} /> }
+                : {
+                      key: 'replies-btn',
+                      onClick: onReplyBtnClick,
+                      tooltipText: 'Toggle replies',
+                      tooltipPosition: 'left',
+                      image: hasReplies
+                          ? icons.commentFull
+                          : icons.commentEmpty,
+                  }
+
         if (!footerDeps) {
+            return [repliesToggle]
+        }
+
+        const shareIconData = getShareButtonData(
+            isShared,
+            isBulkShareProtected,
+            this.hasSharedLists,
+        )
+
+        if (hoverState === null) {
+            if (appendRepliesToggle) {
+                return [repliesToggle]
+            }
+
+            if (isShared || isBulkShareProtected) {
+                return [
+                    {
+                        key: 'share-note-btn',
+                        isDisabled: true,
+                        image: shareIconData.icon,
+                    },
+                ]
+            }
+
             return [
-                repliesLoadingState === 'running'
-                    ? { node: <LoadingIndicator /> }
-                    : {
-                          key: 'replies-btn',
-                          onClick: onReplyBtnClick,
-                          tooltipText: 'Toggle replies',
-                          image: hasReplies
-                              ? icons.commentFull
-                              : icons.commentEmpty,
-                      },
+                {
+                    key: 'share-note-btn',
+                    isDisabled: true,
+                    image: shareIconData.icon,
+                },
             ]
         }
 
-        if (this.props.hoverState === null) {
-            return ['already-shared', 'sharing-success'].includes(
-                this.sharingData.state,
-            ) ||
-                this.props.sharingInfo?.privacyLevel ===
-                    AnnotationPrivacyLevels.PROTECTED
-                ? [
-                      {
-                          key: 'share-note-btn',
-                          isDisabled: true,
-                          image: getShareButtonIcon(
-                              this.sharingData.state,
-                              this.props.sharingInfo?.privacyLevel,
-                          ),
-                      },
-                  ]
-                : []
-        }
-
-        if (this.props.hoverState === 'footer') {
+        if (hoverState === 'footer') {
             return [
                 {
                     key: 'delete-note-btn',
@@ -316,26 +388,12 @@ export default class AnnotationEditable extends React.Component<Props> {
                     tooltipText: 'Copy Note',
                 },
                 {
-                    key: 'tag-note-btn',
-                    image:
-                        this.props.tags?.length > 0
-                            ? icons.tagFull
-                            : icons.tagEmpty,
-                    onClick: footerDeps.onTagIconClick,
-                    tooltipText: 'Tag Note',
-                },
-                {
                     key: 'share-note-btn',
-                    image: getShareButtonIcon(
-                        this.sharingData.state,
-                        this.props.sharingInfo?.privacyLevel,
-                    ),
+                    image: shareIconData.icon,
                     onClick: footerDeps.onShareClick,
-                    tooltipText: SHARE_BUTTON_LABELS[this.sharingData.state],
-                    isDisabled: ['sharing', 'unsharing'].includes(
-                        this.sharingData.state,
-                    ),
+                    tooltipText: shareIconData.label,
                 },
+                appendRepliesToggle && repliesToggle,
             ]
         }
 
@@ -351,40 +409,41 @@ export default class AnnotationEditable extends React.Component<Props> {
                 image: icons.copy,
             },
             {
-                key: 'tag-note-btn',
-                isDisabled: true,
-                image:
-                    this.props.tags?.length > 0
-                        ? icons.tagFull
-                        : icons.tagEmpty,
-            },
-            {
                 key: 'share-note-btn',
                 isDisabled: true,
-                image: getShareButtonIcon(
-                    this.sharingData.state,
-                    this.props.sharingInfo?.privacyLevel,
-                ),
+                image: shareIconData.icon,
             },
+            appendRepliesToggle && repliesToggle,
         ]
     }
 
-    private renderFooter() {
-        const { mode, annotationFooterDependencies: footerDeps } = this.props
+    private renderMarkdownHelpButton() {
+        return (
+            <MarkdownButtonContainer
+                onClick={() => this.setState({ showQuickTutorial: true })}
+            >
+                Formatting Help
+                <MarkdownButton
+                    src={icons.helpIcon}
+                    onClick={() => this.setState({ showQuickTutorial: true })}
+                />
+            </MarkdownButtonContainer>
+        )
+    }
 
-        let actionBtnText: string
-        let actionBtnHandler: React.MouseEventHandler
+    private renderFooter() {
+        const {
+            mode,
+            isShared,
+            isBulkShareProtected,
+            annotationEditDependencies: editDeps,
+            annotationFooterDependencies: footerDeps,
+        } = this.props
+
+        let confirmBtn: JSX.Element
         let cancelBtnHandler: React.MouseEventHandler
 
-        if (mode === 'delete' && footerDeps != null) {
-            actionBtnText = 'Delete'
-            actionBtnHandler = footerDeps.onDeleteConfirm
-            cancelBtnHandler = footerDeps.onDeleteCancel
-        } else if (mode === 'edit' && footerDeps != null) {
-            actionBtnText = 'Save'
-            actionBtnHandler = footerDeps.onEditConfirm
-            cancelBtnHandler = footerDeps.onEditCancel
-        } else {
+        if (mode === 'default' || footerDeps == null) {
             return (
                 <DefaultFooterStyled>
                     <ItemBoxBottom
@@ -398,34 +457,60 @@ export default class AnnotationEditable extends React.Component<Props> {
             )
         }
 
+        if (mode === 'delete') {
+            cancelBtnHandler = footerDeps.onDeleteCancel
+            confirmBtn = (
+                <ActionBtnStyled onClick={footerDeps.onDeleteConfirm}>
+                    Delete
+                </ActionBtnStyled>
+            )
+        } else {
+            cancelBtnHandler = editDeps.onEditCancel
+            confirmBtn = (
+                <SaveBtn
+                    onSave={editDeps.onEditConfirm(false)}
+                    hasSharedLists={this.hasSharedLists}
+                    isProtected={isBulkShareProtected}
+                    isShared={isShared}
+                />
+            )
+        }
+
         return (
             <DeletionBox>
                 {mode === 'delete' && (
                     <DeleteConfirmStyled>Really?</DeleteConfirmStyled>
                 )}
-                <BtnContainerStyled>
-                    <ButtonTooltip tooltipText="esc" position="bottom">
-                        <CancelBtnStyled onClick={cancelBtnHandler}>
-                            Cancel
-                        </CancelBtnStyled>
-                    </ButtonTooltip>
-                    <ButtonTooltip
-                        tooltipText={`${AnnotationEditable.MOD_KEY} + Enter`}
-                        position="bottom"
-                    >
-                        <ActionBtnStyled onClick={actionBtnHandler}>
-                            {actionBtnText}
-                        </ActionBtnStyled>
-                    </ButtonTooltip>
-                </BtnContainerStyled>
+                <SaveActionBar>
+                    <BtnContainerStyled>
+                        <ButtonTooltip tooltipText="esc" position="bottom">
+                            <CancelBtnStyled onClick={cancelBtnHandler}>
+                                Cancel
+                            </CancelBtnStyled>
+                        </ButtonTooltip>
+                        <ButtonTooltip
+                            tooltipText={`${AnnotationEditable.MOD_KEY} + Enter`}
+                            position="bottom"
+                        >
+                            {confirmBtn}
+                        </ButtonTooltip>
+                    </BtnContainerStyled>
+                    {this.renderMarkdownHelpButton()}
+                </SaveActionBar>
             </DeletionBox>
         )
     }
 
     render() {
+        const { annotationFooterDependencies } = this.props
+
         return (
             <ThemeProvider theme={this.theme}>
-                <Margin top="10px">
+                <AnnotationBox
+                    zIndex={this.props.zIndex}
+                    top="5px"
+                    bottom="2px"
+                >
                     <ItemBox
                         firstDivProps={{
                             id: this.props.url,
@@ -433,24 +518,60 @@ export default class AnnotationEditable extends React.Component<Props> {
                         }}
                     >
                         <AnnotationStyled>
-                            {this.renderHighlightBody()}
-                            {this.renderNote()}
-                            <TagsSegment
-                                tags={this.props.tags}
-                                onMouseEnter={this.props.onTagsHover}
-                                showEditBtn={this.props.hoverState === 'tags'}
-                                onTagClick={this.props.onTagClick}
-                                onEditBtnClick={
-                                    this.props.annotationFooterDependencies
-                                        ?.onTagIconClick
+                            <ContentContainer
+                                onDoubleClick={
+                                    annotationFooterDependencies?.onEditIconClick
                                 }
-                            />
+                            >
+                                {this.renderHighlightBody()}
+                                {this.renderNote()}
+                            </ContentContainer>
+                            {/* lists */}
+                            {/* Collections button for annotations. To be added later. */}
+
+                            {this.props.renderListsPickerForAnnotation && (
+                                <ListsSegment
+                                    lists={this.displayLists}
+                                    onMouseEnter={this.props.onListsHover}
+                                    showEditBtn={
+                                        this.props.hoverState === 'lists'
+                                    }
+                                    onListClick={undefined}
+                                    onEditBtnClick={
+                                        this.props.annotationFooterDependencies
+                                            ?.onListIconClick
+                                    }
+                                    renderSpacePicker={() =>
+                                        this.props.renderListsPickerForAnnotation(
+                                            this.props.url,
+                                        )
+                                    }
+                                />
+                            )}
+
+                            {/* tags */}
+                            {this.props.renderTagsPickerForAnnotation && (
+                                <TagsSegment
+                                    tags={this.props.tags}
+                                    onMouseEnter={this.props.onTagsHover}
+                                    showEditBtn={
+                                        this.props.hoverState === 'tags'
+                                    }
+                                    onTagClick={this.props.onTagClick}
+                                    onEditBtnClick={
+                                        this.props.annotationFooterDependencies
+                                            ?.onTagIconClick
+                                    }
+                                />
+                            )}
                             {this.renderFooter()}
                             {this.props.renderTagsPickerForAnnotation && (
                                 <TagPickerWrapper>
-                                    {this.props.renderTagsPickerForAnnotation(
-                                        this.props.url,
-                                    )}
+                                    <HoverBox left="0px" padding={'px'}>
+                                        {this.props.renderTagsPickerForAnnotation(
+                                            this.props.url,
+                                        )}
+                                    </HoverBox>
                                 </TagPickerWrapper>
                             )}
                             {this.props.renderCopyPasterForAnnotation && (
@@ -469,7 +590,47 @@ export default class AnnotationEditable extends React.Component<Props> {
                             )}
                         </AnnotationStyled>
                     </ItemBox>
-                </Margin>
+                </AnnotationBox>
+                {this.state.showQuickTutorial && (
+                    <ClickAway
+                        onClickAway={() =>
+                            this.setState({ showQuickTutorial: false })
+                        }
+                    >
+                        <HoverBox
+                            top={
+                                this.props.contextLocation === 'dashboard'
+                                    ? 'unset'
+                                    : '215px'
+                            }
+                            bottom={
+                                this.props.contextLocation === 'dashboard'
+                                    ? '60px'
+                                    : 'unset'
+                            }
+                            right={
+                                this.props.contextLocation === 'dashboard'
+                                    ? '20px'
+                                    : '50px'
+                            }
+                            width="430px"
+                            position={
+                                this.props.contextLocation === 'dashboard'
+                                    ? 'fixed'
+                                    : 'initial'
+                            }
+                            height="430px"
+                            overflow="scroll"
+                        >
+                            <QuickTutorial
+                                markdownHelpOnTop={true}
+                                getKeyboardShortcutsState={
+                                    getKeyboardShortcutsState
+                                }
+                            />
+                        </HoverBox>
+                    </ClickAway>
+                )}
             </ThemeProvider>
         )
     }
@@ -495,14 +656,22 @@ const EditNoteIconBox = styled.div`
     border: none;
     outline: none;
     background: white;
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
+    padding: 4px;
+    margin-top: -5px;
     border-radius: 3px;
     border: 1px solid #f0f0f0;
 
     &:hover {
         background-color: #f0f0f0;
     }
+`
+
+const AnnotationBox = styled(Margin)<{ zIndex: number }>`
+    width: 99%;
+    align-self: center;
+    z-index: ${(props) => props.zIndex};
 `
 
 const EditNoteIcon = styled.div`
@@ -518,36 +687,51 @@ const EditNoteIcon = styled.div`
     mask-size: 16px;
     cursor: pointer;
 `
+const MarkdownButtonContainer = styled.div`
+    display: flex;
+    font-size: 12px;
+    color: ${(props) => props.theme.colors.lighterText};
+    align-items: center;
+    cursor: pointer;
+`
+
+const MarkdownButton = styled.img`
+    display: flex;
+    height: 16px;
+    opacity: 0.8;
+    mask-position: center center;
+    margin-left: 10px;
+    cursor: pointer;
+`
+
+const SaveActionBar = styled.div`
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+`
 
 const HighlightActionsBox = styled.div`
     position: absolute;
     right: 0px;
-    top: 0px;
+    top: -5px;
     width: 50px;
     display: flex;
     justify-content: flex-end;
+    z-index: 10000;
 `
 
 const NoteTextBox = styled.div`
     position: relative;
-    min-height: 30px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     overflow-x: hidden;
-    line-height: 22px;
+    line-height: 20px;
     line-break: normal;
     word-break: break-word;
-    hyphens: auto;
+    hyphens: none;
     width: 100%;
-
-    & *:first-child {
-        margin-top: 0px;
-    }
-
-    & *:last-child {
-        margin-bottom: 0px;
-    }
 `
 
 const NoteText = styled(Markdown)`
@@ -607,8 +791,9 @@ const HighlightText = styled.span`
     overflow: hidden;
     line-height: 25px;
     font-style: normal;
-    background-color: #d4e8ff;
-    color: ${(props) => props.theme.colors.primary};
+    border-radius: 3px;
+    background-color: ${(props) => props.theme.colors.backgroundHighlight};
+    color: ${(props) => props.theme.colors.darkerText};
     padding: 2px 5px;
 `
 
@@ -631,10 +816,10 @@ const CommentBox = styled.div`
     word-wrap: break-word;
     white-space: pre-wrap;
     margin: 0px;
-    padding: 10px 15px 10px 15px;
+    padding: 15px 15px 15px 15px;
     line-height: 1.4;
     text-align: left;
-    border-top: 1px solid #e0e0e0;
+    border-top: 1px solid #f0f0f0;
     overflow: visible;
     flex-direction: row-reverse;
     display: flex;
@@ -654,7 +839,7 @@ const CommentBox = styled.div`
 
 const DefaultFooterStyled = styled.div`
     display: flex;
-    border-top: 1px solid #e0e0e0;
+    border-top: 1px solid #f0f0f0;
 
     & div {
         border-top: none;
@@ -683,16 +868,23 @@ const AnnotationStyled = styled.div`
     ${({ theme }) =>
         theme.isActive &&
         `
-        box-shadow: 0px 0px 5px 1px #00000080;
+        outline: 2px solid #5671cfb8;
     `};
+`
+
+const ContentContainer = styled.div`
+    display: flex;
+    box-sizing: border-box;
+    flex-direction: column;
 `
 
 const DeleteConfirmStyled = styled.span`
     box-sizing: border-box;
     font-weight: 800;
-    font-size: 15px;
+    font-size: 14px;
     color: #000;
-    margin-right: 5px;
+    margin-right: 10px;
+    text-align: right;
 `
 
 const CancelBtnStyled = styled.button`
@@ -707,7 +899,7 @@ const CancelBtnStyled = styled.button`
     color: red;
 
     &:hover {
-        background-color: #e0e0e0;
+        background-color: ${(props) => props.theme.colors.backgroundColor};
     }
 
     &:focus {
@@ -718,9 +910,8 @@ const CancelBtnStyled = styled.button`
 const BtnContainerStyled = styled.div`
     display: flex;
     flex-direction: row-reverse;
-    width: 100%;
     justify-content: flex-end;
-    padding: 0 5px 5px;
+    align-items: center;
 `
 
 const ActionBtnStyled = styled.button`
@@ -752,5 +943,7 @@ const ActionBtnStyled = styled.button`
 const DeletionBox = styled.div`
     display: flex;
     justify-content: space-between;
-    padding-left: 10px;
+    align-items: center;
+    border-top: 1px solid #f0f0f0;
+    padding: 5px 15px 5px 15px;
 `

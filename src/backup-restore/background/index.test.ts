@@ -16,6 +16,7 @@ describe('Backup feature', () => {
 
         expect(backedUp).toEqual({
             pages: { backup: true, watch: true },
+            locators: { backup: true, watch: true },
             readablePageArchives: { backup: true, watch: true },
             readwiseAction: { backup: false, watch: false },
             visits: { backup: true, watch: true },
@@ -31,6 +32,7 @@ describe('Backup feature', () => {
             customListDescriptions: { backup: true, watch: true },
             pageListEntries: { backup: true, watch: true },
             pageListEntryDescriptions: { backup: true, watch: true },
+            personalCloudAction: { backup: false, watch: false },
             socialPosts: { backup: true, watch: true },
             socialUsers: { backup: true, watch: true },
             socialTags: { backup: true, watch: true },
@@ -40,6 +42,7 @@ describe('Backup feature', () => {
             templates: { backup: true, watch: true },
             sharedListMetadata: { backup: true, watch: true },
             sharedAnnotationMetadata: { backup: true, watch: true },
+            settings: { backup: true, watch: true },
 
             contentSharingAction: { backup: false, watch: false },
             pageFetchBacklog: { backup: false, watch: false },

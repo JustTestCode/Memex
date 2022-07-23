@@ -5,6 +5,7 @@ import { CHANGE_LOG_LINK } from './constants'
 import { StatefulUIElement } from 'src/util/ui-logic'
 import { getLocalStorage, setLocalStorage } from 'src/util/storage'
 import { NotifBanner, ThemeProps } from 'src/common-ui/components/NotifBanner'
+import { MemexTheme } from '@worldbrain/memex-common/lib/common-ui/styles/types'
 
 export interface Props extends Partial<LogicDeps> {
     theme?: ThemeProps
@@ -37,7 +38,10 @@ export class UpdateNotifBanner extends StatefulUIElement<Props, State, Event> {
                 mainText="Memex Updated!"
                 mainBtnText="What's new?"
                 onCloseBtnClick={() => this.processEvent('hide', null)}
-                onMainBtnClick={() => this.props.openLink(CHANGE_LOG_LINK)}
+                onMainBtnClick={() => {
+                    this.processEvent('hide', null)
+                    this.props.openLink(CHANGE_LOG_LINK)
+                }}
                 {...this.props}
             />
         )

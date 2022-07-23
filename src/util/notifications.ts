@@ -6,24 +6,27 @@ import {
     NotificationCreator,
     NotificationClickListener,
 } from 'src/util/notification-types'
-import browserIsChrome from './check-browser'
+import checkBrowser, { BrowserName } from './check-browser'
 
 export const DEF_ICON_URL = '/img/worldbrain-logo-narrow.png'
 export const DEF_TYPE = 'basic'
 
 export interface Props {
     notificationsAPI: Notifications.Static
-    browserIsChrome: () => boolean
+    browser: BrowserName
+}
+
+export const DEF_NOTIFICATION_OPTS: Pick<
+    NotifOpts,
+    'type' | 'iconUrl' | 'requireInteraction'
+> = {
+    type: DEF_TYPE,
+    iconUrl: DEF_ICON_URL,
+    requireInteraction: true,
 }
 
 export class Creator implements NotificationCreator {
     private onClickListeners = new Map<string, NotificationClickListener>()
-
-    static DEF_OPTS: Partial<NotifOpts> = {
-        type: DEF_TYPE,
-        iconUrl: DEF_ICON_URL,
-        requireInteraction: true,
-    }
 
     constructor(private props: Props) {}
 
@@ -39,13 +42,13 @@ export class Creator implements NotificationCreator {
         ...rest
     }: NotifOpts): NotifOpts {
         const opts = { type, iconUrl, title, message }
-        return !this.props.browserIsChrome() ? opts : { ...opts, ...rest }
+        return this.props.browser === 'firefox' ? opts : { ...opts, ...rest }
     }
 
-    create: CreateNotification = async (notifOptions, onClick = f => f) => {
+    create: CreateNotification = async (notifOptions, onClick = (f) => f) => {
         const id = await this.props.notificationsAPI.create(
             this.filterOpts({
-                ...Creator.DEF_OPTS,
+                ...DEF_NOTIFICATION_OPTS,
                 ...(notifOptions as NotifOpts),
             }),
         )
@@ -56,7 +59,7 @@ export class Creator implements NotificationCreator {
     }
 
     setupListeners = () =>
-        this.props.notificationsAPI.onClicked.addListener(id => {
+        this.props.notificationsAPI.onClicked.addListener((id) => {
             this.props.notificationsAPI.clear(id)
 
             this.onClickListeners.get(id)(id)
@@ -66,7 +69,7 @@ export class Creator implements NotificationCreator {
 
 const instance = new Creator({
     notificationsAPI: browser.notifications,
-    browserIsChrome,
+    browser: checkBrowser(),
 })
 
 export const setupNotificationClickListener = instance.setupListeners

@@ -1,11 +1,11 @@
-@import url('/fonts/Poppins/poppins.css');
+@import url('/fonts/Inter/inter.css');
 
 :root {
     --memex-green: #4abf9d;
 }
 
 .MEMEX_CONTAINER * {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', sans-serif;
 }
 
 .MEMEX_CONTAINER {
@@ -17,7 +17,6 @@
     flex-direction: column;
     border-bottom: #dedede solid 1px;
     margin-bottom: 20px;
-    margin-right: 20px;
     background: #fff;
     padding: 0px 5px 20px 5px;
 }
@@ -35,6 +34,11 @@
     & .header {
         border: none;
     }
+}
+
+.MEMEX_CONTAINER_SIDE {
+    margin-right: 0px;
+    width: 440px;
 }
 
 .resultLength {
@@ -111,7 +115,7 @@
     display: inline-block;
     font-size: 16px;
     font-weight: 600;
-    width: 71%;
+    width: 67%;
     margin-right: 10px;
     padding-left: 11px;
 }
@@ -148,7 +152,7 @@
 
 .google_above {
     & .settingsButton {
-        right: -10px;
+        right: 5px;
     }
 
     & .resultsText {
@@ -169,10 +173,10 @@
 }
 
 .google_side {
-    width: 454px;
+    width: 435px;
 
     & .settingsButton {
-        right: -7px;
+        right: 5px;
     }
 
     & .mainContainer {

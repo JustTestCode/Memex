@@ -9,7 +9,7 @@ export function createInPageUIRoot({
 }: {
     containerId: string
     rootId: string
-    cssFile: string
+    cssFile?: string
     rootClassNames?: string[]
     containerClassNames?: string[]
 }) {
@@ -58,18 +58,22 @@ export function createShadowRootIfSupported(
          */
         shadow = container.attachShadow({ mode: 'open' })
 
-        var innerHTML = '';
-        innerHTML += '<style>';
-        innerHTML += ':host {all: initial}';
-        innerHTML += '</style>';           
-        shadow.innerHTML = innerHTML;
-
+        var innerHTML = ''
+        innerHTML += '<style>'
+        innerHTML +=
+            ':host {all: initial} :host * {font-family: "Inter", sans-serif; line-height: initial}'
+        innerHTML += '</style>'
+        shadow.innerHTML = innerHTML
 
         shadow.appendChild(rootElement)
-        injectCSS(cssFile, shadow)
+        if (cssFile != null) {
+            injectCSS(cssFile, shadow)
+        }
     } else {
         container.appendChild(rootElement)
-        injectCSS(cssFile)
+        if (cssFile != null) {
+            injectCSS(cssFile)
+        }
     }
 
     return { rootElement, shadow }

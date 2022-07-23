@@ -5,94 +5,157 @@ import Button from '@worldbrain/memex-common/lib/common-ui/components/button'
 import { fonts } from '../../styles'
 import Margin from 'src/dashboard-refactor/components/Margin'
 import { ButtonTooltip } from 'src/common-ui/components'
-import { AnnotationSharingAccess } from 'src/content-sharing/ui/types'
+import * as icons from 'src/common-ui/components/design-library/icons'
+import { PrimaryAction } from 'src/common-ui/components/design-library/actions/PrimaryAction'
 
 export interface Props {
     listName: string
     remoteLink?: string
     localListId: number
-    sharingAccess: AnnotationSharingAccess
     onAddContributorsClick?: React.MouseEventHandler
 }
 
 export default class ListDetails extends PureComponent<Props> {
-    private renderAddContributorsBtn() {
-        if (
-            !this.props.onAddContributorsClick ||
-            this.props.sharingAccess === 'feature-disabled'
-        ) {
-            return
-        }
-
-        return (
-            <Margin right="10px">
-                <ButtonTooltip
-                    tooltipText="Invite people to this collection"
-                    position="bottom"
-                >
-                    <Icon
-                        height="18px"
-                        icon="addPeople"
-                        onClick={this.props.onAddContributorsClick}
-                    />
-                </ButtonTooltip>
-            </Margin>
-        )
-    }
-
     render() {
         return (
             <>
                 {this.props.listName && (
-                    <Margin top="10px" bottom="20px">
-                        <Container>
+                    <TopBarContainer top="10px" bottom="20px">
+                        <Container center={!this.props.remoteLink}>
                             <DetailsContainer>
-                                <Name>{this.props.listName}</Name>
+                                <SectionTitle>
+                                    {this.props.listName}
+                                </SectionTitle>
                                 {this.props.remoteLink && (
-                                    <Note>
-                                        You can only see and search your own
-                                        contributions to this collection.
-                                        <br /> Open the collection in the web
-                                        view to see all entries.
-                                    </Note>
+                                    <InfoText>
+                                        Only your own contributions to this
+                                        space are visible locally. To see all,
+                                        open the{' '}
+                                        <a
+                                            target="_blank"
+                                            href={this.props.remoteLink}
+                                        >
+                                            web view{' '}
+                                        </a>
+                                    </InfoText>
                                 )}
                             </DetailsContainer>
                             <BtnsContainer>
-                                {this.renderAddContributorsBtn()}
-                                {this.props.remoteLink && (
-                                    <Button
-                                        type="primary-action"
-                                        externalHref={this.props.remoteLink}
+                                {this.props.remoteLink ? (
+                                    <>
+                                        <Margin right="10px">
+                                            <ButtonTooltip
+                                                tooltipText="Invite people to this Space"
+                                                position="bottom"
+                                            >
+                                                <Icon
+                                                    height="19px"
+                                                    filePath={icons.peopleFine}
+                                                    color="purple"
+                                                    onClick={
+                                                        this.props
+                                                            .onAddContributorsClick
+                                                    }
+                                                />
+                                            </ButtonTooltip>
+                                        </Margin>
+                                        <PrimaryAction
+                                            onClick={() =>
+                                                window.open(
+                                                    this.props.remoteLink,
+                                                )
+                                            }
+                                            label="Open Web View"
+                                            fontSize={'14px'}
+                                        />
+                                    </>
+                                ) : (
+                                    <ButtonTooltip
+                                        tooltipText="Invite people to this Space"
+                                        position="bottom"
                                     >
-                                        Open
-                                    </Button>
+                                        <PrimaryAction
+                                            onClick={
+                                                this.props
+                                                    .onAddContributorsClick
+                                            }
+                                            label={
+                                                <ShareCollectionBtn>
+                                                    <Icon
+                                                        height="14px"
+                                                        filePath={icons.link}
+                                                        color="white"
+                                                        hoverOff
+                                                    />
+                                                    <ShareCollectionBtnLabel>
+                                                        Share Space
+                                                    </ShareCollectionBtnLabel>
+                                                </ShareCollectionBtn>
+                                            }
+                                        />
+                                    </ButtonTooltip>
                                 )}
                             </BtnsContainer>
                         </Container>
-                    </Margin>
+                    </TopBarContainer>
                 )}{' '}
             </>
         )
     }
 }
 
-const Container = styled.div`
+const TopBarContainer = styled(Margin)`
+    z-index: 2147483640;
+`
+
+const InfoText = styled.div`
+    color: ${(props) => props.theme.colors.normalText};
+    font-size: 14px;
+    font-weight: 300;
+`
+
+const SectionTitle = styled.div`
+    color: ${(props) => props.theme.colors.darkerText};
+    font-size: 24px;
+    font-weight: bold;
+`
+
+const Container = styled.div<{ center: boolean }>`
     display: flex;
     flex-direction: row;
     justify-content: space-between;
     width: 100%;
-    align-items: flex-start;
+    align-items: ${(props) => (props.center ? 'center' : 'flex-start')};
+    z-index: 1002;
+
+    & a {
+        text-decoration: none;
+        font-weight: 600;
+    }
 `
 
 const DetailsContainer = styled.div`
     display: flex;
     flex-direction: column;
+    grid-gap: 5px;
+`
+
+const ShareCollectionBtn = styled.div`
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+`
+
+const ShareCollectionBtnLabel = styled.div`
+    padding-left: 10px;
+    font-size: 14px;
 `
 
 const BtnsContainer = styled.div`
     display: flex;
     align-items: center;
-    padding-top: 5px;
+    z-index: 100;
 `
 
 const Name = styled.div`

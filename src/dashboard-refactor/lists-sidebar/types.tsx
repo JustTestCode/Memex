@@ -73,6 +73,7 @@ export type Events = UIEvent<{
     setLocalListsExpanded: { isExpanded: boolean }
     setFollowedListsExpanded: { isExpanded: boolean }
 
+    changeListName: { value: string }
     confirmListEdit: { value: string }
     cancelListEdit: null
     setDragOverListId: { listId?: number }
@@ -80,6 +81,8 @@ export type Events = UIEvent<{
     setSelectedListId: { listId: number }
     setShowMoreMenuListId: { listId: number }
     dropPageOnListItem: { listId: number; dataTransfer: DataTransfer }
+    shareList: { listId: number }
+    setListRemoteId: { localListId: number; remoteListId: string }
 
     confirmListDelete: null
     cancelListDelete: null

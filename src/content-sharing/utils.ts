@@ -1,7 +1,13 @@
+import { AnnotationPrivacyLevels } from '@worldbrain/memex-common/lib/annotations/types'
+
 function getBaseUrl() {
-    return process.env.NODE_ENV === 'production'
-        ? `https://memex.social`
-        : `https://staging.memex.social`
+    if (process.env.NODE_ENV === 'production') {
+        return `https://memex.social`
+    }
+    if (process.env.USE_FIREBASE_EMULATOR === 'true') {
+        return 'http://localhost:3000'
+    }
+    return `https://staging.memex.social`
 }
 
 export function getListShareUrl(options: { remoteListId: string }) {

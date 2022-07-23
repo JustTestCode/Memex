@@ -11,14 +11,16 @@ import {
 
 const StyledPrimaryAction = styled.div`
     padding: 8px 20px;
-    height: 36px;
+    height: 35px;
+    font-weight: 400;
     overflow: visible;
     white-space: nowrap;
     display: flex;
     justify-content: center;
     align-items: center;
     vertical-align: middle;
-    background: ${(props) => props.disabled ? colorDisabled : props.theme.colors.purple};
+    background: ${(props) =>
+        props.disabled ? colorDisabled : props.theme.colors.purple};
 
     box-sizing: border-box;
     border-radius: 5px;
@@ -33,8 +35,10 @@ const StyledPrimaryAction = styled.div`
     }
 `
 
-const StyledPrimaryActionLinkText = styled(TypographyActionText)`
-    font-size: ${fontSizeSmall}px;
+const StyledPrimaryActionLinkText = styled(TypographyActionText)<{
+    fontSize: string
+}>`
+    font-size: ${(props) => (props.fontSize ? props.fontSize : fontSizeSmall)};
     color: white;
 `
 export const PrimaryAction = ({
@@ -42,11 +46,13 @@ export const PrimaryAction = ({
     onClick,
     disabled,
     innerRef,
+    fontSize,
 }: {
     label: React.ReactNode
-    onClick: () => void
+    onClick: React.MouseEventHandler
     disabled?: boolean
     innerRef?: any
+    fontSize?: string
 }) => (
     <StyledPrimaryAction
         autoFocus
@@ -54,8 +60,10 @@ export const PrimaryAction = ({
         onClick={disabled === true ? undefined : onClick}
         disabled={disabled}
         ref={innerRef}
-        onKeyPress={(e) => (e.key === 'Enter' ? onClick() : false)}
+        onKeyPress={(e) => (e.key === 'Enter' ? onClick(e) : false)}
     >
-        <StyledPrimaryActionLinkText>{label}</StyledPrimaryActionLinkText>
+        <StyledPrimaryActionLinkText fontSize={fontSize}>
+            {label}
+        </StyledPrimaryActionLinkText>
     </StyledPrimaryAction>
 )

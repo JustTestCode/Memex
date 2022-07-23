@@ -1,25 +1,18 @@
-import { getLocalStorage, setLocalStorage } from 'src/util/storage'
-import { TextTruncator } from './types'
 import { normalizeUrl } from '@worldbrain/memex-url-utils'
+import { AnnotationPrivacyLevels } from '@worldbrain/memex-common/lib/annotations/types'
+import type { TextTruncator } from './types'
+import type { AnnotationShareOpts } from './annotation-save-logic'
 
-export const LAST_SHARED_ANNOTS =
+export const __OLD_LAST_SHARED_ANNOTS =
     '@ContentSharing-last-shared-annotation-timestamp'
 
-export const generateUrl = (params: { pageUrl: string; now: () => number }) => {
+export const generateAnnotationUrl = (params: {
+    pageUrl: string
+    now: () => number
+}) => {
     const { pageUrl, now } = params
     return `${normalizeUrl(pageUrl)}/#${now()}`
 }
-
-export const isUrlForAnnotation = (url: string): boolean =>
-    /#\d{10,}$/.test(url)
-
-export const getLastSharedAnnotationTimestamp = (): Promise<
-    number | undefined
-> => getLocalStorage(LAST_SHARED_ANNOTS)
-
-export const setLastSharedAnnotationTimestamp = (
-    timestamp = Date.now(),
-): Promise<void> => setLocalStorage(LAST_SHARED_ANNOTS, timestamp)
 
 export const truncateText: TextTruncator = (
     text,
@@ -58,4 +51,18 @@ export const truncateText: TextTruncator = (
     }
 
     return { isTooLong: false, text }
+}
+
+export function shareOptsToPrivacyLvl(
+    shareOpts?: AnnotationShareOpts,
+): AnnotationPrivacyLevels {
+    if (shareOpts?.shouldShare) {
+        return shareOpts.isBulkShareProtected
+            ? AnnotationPrivacyLevels.SHARED_PROTECTED
+            : AnnotationPrivacyLevels.SHARED
+    }
+
+    return shareOpts?.isBulkShareProtected
+        ? AnnotationPrivacyLevels.PROTECTED
+        : AnnotationPrivacyLevels.PRIVATE
 }

@@ -12,22 +12,8 @@ const settingsStyle = require('src/options/settings/components/settings.css')
 
 class SetupManualOrAutomatic extends React.Component {
     state = {
-        mode: null,
-        automatic: false,
-    }
-
-    async componentDidMount() {
-        await this.fetchAuthorizedFeatures()
-    }
-
-    async fetchAuthorizedFeatures() {
-        if (
-            await this.props.currentUser?.authorizedFeatures.includes('backup')
-        ) {
-            this.setState({
-                automatic: true,
-            })
-        }
+        mode: 'automatic',
+        automatic: true,
     }
 
     render() {
@@ -58,31 +44,17 @@ class SetupManualOrAutomatic extends React.Component {
                                     label={'Continue'}
                                 />
                             )}
-                            {this.state.mode === 'automatic' &&
-                                this.state.automatic && (
-                                    <PrimaryAction
-                                        disabled={false}
-                                        onClick={
-                                            this.state.automatic
-                                                ? () =>
-                                                      this.props.onChoice({
-                                                          type: 'automatic',
-                                                      })
-                                                : () => false
-                                        }
-                                        label={'Next'}
-                                    />
-                                )}
-                            {this.state.automatic === false &&
-                                this.state.mode === 'automatic' && (
-                                    <PrimaryAction
-                                        disabled={false}
-                                        onClick={
-                                            this.props.showSubscriptionModal
-                                        }
-                                        label={'Upgrade to Memex Pro'}
-                                    />
-                                )}
+                            {this.state.mode === 'automatic' && (
+                                <PrimaryAction
+                                    disabled={false}
+                                    onClick={() =>
+                                        this.props.onChoice({
+                                            type: 'automatic',
+                                        })
+                                    }
+                                    label={'Next'}
+                                />
+                            )}
                         </div>
                     </div>
                 </div>
@@ -99,5 +71,5 @@ SetupManualOrAutomatic.propTypes = {
     onChoice: PropTypes.func.isRequired,
     onBackRequested: PropTypes.func.isRequired,
     showSubscriptionModal: PropTypes.func.isRequired,
-    currentUser: PropTypes.object.isRequired,
+    // currentUser: PropTypes.object.isRequired,
 }

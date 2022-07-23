@@ -1,13 +1,16 @@
 import React, { PureComponent } from 'react'
 import { connect, MapStateToProps } from 'react-redux'
 
-import Button from '../../components/Button'
-import ToggleSwitch from '../../components/ToggleSwitch'
-import { RootState, ClickHandler } from '../../types'
+import { ToggleSwitchButton } from '../../components/ToggleSwitchButton'
+import type { RootState } from '../../types'
 import * as selectors from '../selectors'
 import * as acts from '../actions'
+import { CheckboxToggle } from 'src/common-ui/components'
+import { ButtonTooltip } from 'src/common-ui/components'
+import styled from 'styled-components'
+import * as icons from 'src/common-ui/components/design-library/icons'
+import Icon from '@worldbrain/memex-common/lib/common-ui/components/icon'
 
-const styles = require('./TooltipButton.css')
 const buttonStyles = require('../../components/Button.css')
 
 export interface OwnProps {
@@ -19,46 +22,101 @@ interface StateProps {
 }
 
 interface DispatchProps {
-    handleChange: ClickHandler<HTMLButtonElement>
-    showTooltip: ClickHandler<HTMLButtonElement>
+    handleChange: CheckboxToggle
+    showTooltip: React.MouseEventHandler
     initState: () => Promise<void>
 }
 
 export type Props = OwnProps & StateProps & DispatchProps
 
 class InPageSwitches extends PureComponent<Props> {
-    componentDidMount() {
-        this.props.initState()
+    async componentDidMount() {
+        await this.props.initState()
     }
 
     render() {
         return (
-            <div className={styles.switchBlocks}>
-                <div className={styles.option}>
-                    <Button
-                        onClick={this.props.showTooltip}
-                        itemClass={styles.button}
-                        btnClass={buttonStyles.highlighterIcon}
-                        title={'Open Memex annotation tooltip'}
-                    >
-                        Show Highlighter
-                    </Button>
-                </div>
-                <div
-                    className={styles.switch}
-                    title={
-                        'Enable/disable Memex highlighter tooltip on all pages'
+            <ButtonItem>
+                <ButtonInnerContainer onClick={this.props.showTooltip}>
+                    <SectionCircle>
+                        <Icon
+                            filePath={icons.highlighterEmpty}
+                            heightAndWidth="18px"
+                            hoverOff
+                        />
+                    </SectionCircle>
+                    <ButtonInnerContent>
+                        Show Highlighter Tooltip
+                        <SubTitle>when selecting text on current page</SubTitle>
+                    </ButtonInnerContent>
+                </ButtonInnerContainer>
+                <ToggleSwitchButton
+                    toggleHoverText={
+                        <span>
+                            Always Show <br />
+                            when selecting Text
+                        </span>
                     }
-                >
-                    <ToggleSwitch
-                        isChecked={this.props.isEnabled}
-                        onChange={this.props.handleChange}
-                    />
-                </div>
-            </div>
+                    isEnabled={this.props.isEnabled}
+                    onToggleClick={this.props.handleChange}
+                />
+            </ButtonItem>
         )
     }
 }
+
+const ButtonInnerContainer = styled.div`
+    display: flex;
+    grid-gap: 15px;
+`
+
+const SectionCircle = styled.div`
+    background: ${(props) => props.theme.colors.backgroundHighlight}80;
+    border-radius: 100px;
+    height: 32px;
+    width: 32px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+`
+
+const ButtonItem = styled.div<{ disabled: boolean }>`
+    display: flex;
+    grid-gap: 15px;
+    width: fill-available;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 10px;
+    margin: 0px 10px;
+    border-radius: 8px;
+    height: 55px;
+    cursor: ${(props) => (props.disabled ? 'not-allowed' : 'pointer')};
+
+    &:hover {
+        background: ${(props) => props.theme.colors.backgroundColorDarker};
+    }
+
+    & * {
+        cursor: ${(props) => (props.disabled ? 'not-allowed' : 'pointer')};
+    }
+`
+
+const ButtonInnerContent = styled.div`
+    display: flex;
+    grid-gap: 5px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    font-size: 14px;
+    font-weight: 600;
+    color: ${(props) => props.theme.colors.darkerText};
+`
+
+const SubTitle = styled.div`
+    font-size: 12px;
+    color: ${(props) => props.theme.colors.lighterText};
+    font-weight: 400;
+`
 
 const mapState: MapStateToProps<StateProps, OwnProps, RootState> = (state) => ({
     isEnabled: selectors.isTooltipEnabled(state),

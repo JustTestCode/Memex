@@ -1,12 +1,10 @@
 import React, { PureComponent } from 'react'
 import Margin from 'src/dashboard-refactor/components/Margin'
 import styles from 'src/dashboard-refactor/styles'
-import {
-    Icon,
-    LoadingContainer,
-    LoadingIndicator,
-} from 'src/dashboard-refactor/styled-components'
+import LoadingIndicator from '@worldbrain/memex-common/lib/common-ui/components/loading-indicator'
 import styled from 'styled-components'
+import { ThemeProvider } from 'styled-components'
+import Icon from '@worldbrain/memex-common/lib/common-ui/components/icon'
 
 import { TaskState } from 'ui-logic-core/lib/types'
 import { Props as ListsSidebarItemProps } from './sidebar-item-with-menu'
@@ -17,6 +15,13 @@ const { fonts } = styles
 const Container = styled.div`
     width: 100%;
     position: relative;
+`
+
+const LoadingContainer = styled.div`
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 `
 
 const GroupHeaderContainer = styled.div`
@@ -33,28 +38,39 @@ const GroupHeaderInnerDiv = styled.div`
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+    padding-right: 5px;
 `
 
 const GroupTitle = styled.div`
-    color: ${fonts.primary.colors.secondary};
+    color: ${(props) => props.theme.colors.darkerBlue};
     font-family: ${fonts.primary.name};
     line-height: 18px;
     cursor: pointer;
 
-    width: max-content;
+    width: fill-available;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: 14px;
-    font-weight: 300;
-    padding: 5px 0px 5px 5px;
-    opacity: 0.7;
+    font-weight: 600;
+    padding: 5px 0px 5px 20px;
 `
 
 const IconContainer = styled.div`
     cursor: pointer;
     display: flex;
     flex-direction: row;
+    align-items: center;
+
+    &:hover {
+        background: #f0f0f0;
+    }
+`
+
+const IconGroup = styled.div`
+    display: grid;
+    grid-auto-flow: column;
+    grid-gap: 5px;
     align-items: center;
 `
 
@@ -68,7 +84,7 @@ export interface ListsSidebarGroupProps {
     isAddInputShown?: boolean
     loadingState: TaskState
     confirmAddNewList?: (name: string) => void
-    cancelAddNewList?: (name: string) => void
+    cancelAddNewList?: (shouldSave: boolean) => void
     onAddBtnClick?: React.MouseEventHandler
     onExpandBtnClick?: React.MouseEventHandler
     listsArray?: ListsSidebarItemProps[]
@@ -87,7 +103,7 @@ export default class ListsSidebarGroup extends PureComponent<
         return (
             <Margin vertical="15px">
                 <LoadingContainer>
-                    <LoadingIndicator backgroundColor="#e1e1e1" />
+                    <LoadingIndicator size={20} />
                 </LoadingContainer>
             </Margin>
         )
@@ -114,37 +130,31 @@ export default class ListsSidebarGroup extends PureComponent<
             <Container>
                 {this.props.title && (
                     <GroupHeaderContainer>
-                        {this.props.onExpandBtnClick && (
-                            <IconContainer
-                                onClick={this.props.onExpandBtnClick}
-                            >
-                                <Margin left="5px">
-                                    <Icon
-                                        rotation={
-                                            this.props.isExpanded ? '0' : '-90'
-                                        }
-                                        heightAndWidth="8px"
-                                        path={icons.triangle}
-                                    />
-                                </Margin>
-                            </IconContainer>
-                        )}
                         <GroupHeaderInnerDiv className="inner">
                             <GroupTitle onClick={this.props.onExpandBtnClick}>
                                 {this.props.title}
                             </GroupTitle>
-                            {this.props.onAddBtnClick && (
-                                <IconContainer
-                                    onClick={this.props.onAddBtnClick}
-                                >
-                                    <Margin horizontal="8px">
-                                        <Icon
-                                            heightAndWidth="8px"
-                                            path={icons.plus}
-                                        />
-                                    </Margin>
-                                </IconContainer>
-                            )}
+                            <IconGroup>
+                                {this.props.onAddBtnClick && (
+                                    <Icon
+                                        heightAndWidth="14px"
+                                        filePath={icons.plus}
+                                        color={'purple'}
+                                        onClick={this.props.onAddBtnClick}
+                                    />
+                                )}
+                                {this.props.onExpandBtnClick && (
+                                    <Icon
+                                        rotation={
+                                            this.props.isExpanded ? 0 : -90
+                                        }
+                                        heightAndWidth="16px"
+                                        filePath={icons.triangle}
+                                        color={'iconColor'}
+                                        onClick={this.props.onExpandBtnClick}
+                                    />
+                                )}
+                            </IconGroup>
                         </GroupHeaderInnerDiv>
                     </GroupHeaderContainer>
                 )}

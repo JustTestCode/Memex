@@ -6,13 +6,14 @@ import { SETTINGS_URL } from 'src/constants'
 import SearchBar, { SearchBarProps } from './search-bar'
 import { SyncStatusIconState } from './types'
 import SyncStatusMenu, { SyncStatusMenuProps } from './sync-status-menu'
-import styles, { fonts } from '../styles'
+import { fonts } from '../styles'
 import { Icon } from '../styled-components'
 import Margin from '../components/Margin'
 import { sizeConstants } from 'src/dashboard-refactor/constants'
 import SidebarToggle from './sidebar-toggle'
-import { SidebarLockedState } from '../lists-sidebar/types'
-import { HoverState } from '../types'
+import type { SidebarLockedState } from '../lists-sidebar/types'
+import type { HoverState } from '../types'
+import { SyncStatusIcon } from './sync-status-menu/sync-status-icon'
 
 const Container = styled.div`
     height: ${sizeConstants.header.heightPx}px;
@@ -24,11 +25,16 @@ const Container = styled.div`
     align-items: center;
     justify-content: space-between;
     background: #fff;
-    z-index: 5;
+    z-index: 2147483646;
 `
 
 const SearchSection = styled(Margin)`
-    flex: 2;
+    justify-content: flex-start !important;
+    max-width: 825px !important;
+
+    & > div {
+        justify-content: flex-start !important;
+    }
 `
 
 const SettingsSection = styled(Margin)`
@@ -42,7 +48,8 @@ const SettingsSection = styled(Margin)`
     border-radius: 3px;
 
     &:hover {
-        background-color: #e8e8e8;
+        background-color: ${(props) =>
+            props.theme.colors.backgroundColorDarker};
     }
 `
 
@@ -54,16 +61,6 @@ const RightHeader = styled.div`
     flex: 1;
 `
 
-const SyncStatusIcon = styled.div<{
-    color: SyncStatusIconState
-}>`
-    height: 12px;
-    width: 12px;
-    border-radius: 6px;
-    background-color: ${(props) =>
-        styles.components.syncStatusIcon.colors[props.color]};
-`
-
 const SyncStatusHeaderBox = styled.div`
     display: flex;
     flex-direction: row;
@@ -73,27 +70,38 @@ const SyncStatusHeaderBox = styled.div`
     padding: 4px 8px;
     border-radius: 3px;
     height: 24px;
+    grid-gap: 5px;
 
     & > div {
         width: auto;
     }
 
     &:hover {
-        background-color: #e8e8e8;
+        background-color: ${(props) =>
+            props.theme.colors.backgroundColorDarker};
+    }
+
+    @media screen and (max-width: 768px) {
+        padding: 4px 4px 4px 4px;
+        margin-left: 15px;
+        width: 20px;
     }
 `
 
 const SyncStatusHeaderText = styled.span<{
     textCentered: boolean
 }>`
-    font-family: ${fonts.primary.name};
-    font-weight: ${fonts.primary.weight.bold};
-    color: ${fonts.primary.colors.primary};
-    font-size: 12px;
-    line-height: 15px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    color: ${(props) => props.theme.colors.normalText};
+    font-size: 14px;
     white-space: nowrap;
     overflow: hidden;
     ${(props) => (props.textCentered ? 'text-align: center;' : '')}
+
+    @media screen and (max-width: 768px) {
+        display: none;
+    }
 `
 
 const SidebarHeaderContainer = styled.div`
@@ -119,8 +127,22 @@ const CollectionTitle = styled.p`
     display: flex;
 `
 
+const ActivityIndicator = styled.div<{ hasActivities }>`
+    border-radius: 20px;
+    height: 10px;
+    width: 10px;
+    margin-left: -24px;
+    border: ${(props) =>
+        props.hasActivities
+            ? '2px solid' + props.theme.colors.purple
+            : '1px solid' + props.theme.colors.lightgrey};
+    background: ${(props) => props.hasActivities && props.theme.colors.purple};
+`
+
 const SidebarToggleBox = styled(Margin)`
-    width: min-content;
+    width: fit-content;
+    display: flex;
+    align-items: center;
 `
 
 export interface HeaderProps {
@@ -130,6 +152,7 @@ export interface HeaderProps {
     searchBarProps: SearchBarProps
     syncStatusMenuProps: SyncStatusMenuProps
     syncStatusIconState: SyncStatusIconState
+    activityStatus?: boolean
 }
 
 export default class Header extends PureComponent<HeaderProps> {
@@ -150,12 +173,12 @@ export default class Header extends PureComponent<HeaderProps> {
                             sidebarLockedState={this.props.sidebarLockedState}
                             hoverState={this.props.sidebarToggleHoverState}
                         />
+                        <ActivityIndicator
+                            hasActivities={this.props.activityStatus}
+                        />
                     </SidebarToggleBox>
-                    {selectedList && (
-                        <CollectionTitle>{selectedList}</CollectionTitle>
-                    )}
                 </SidebarHeaderContainer>
-                <SearchSection vertical="auto" horizontal="17px">
+                <SearchSection vertical="auto" left="24px">
                     <SearchBar {...searchBarProps} />
                 </SearchSection>
                 <RightHeader>
@@ -163,19 +186,22 @@ export default class Header extends PureComponent<HeaderProps> {
                         className={Header.SYNC_MENU_TOGGLE_BTN_CLASS}
                         onClick={syncStatusMenuProps.onToggleDisplayState}
                     >
-                        <Margin right="5px">
+                        <Margin>
                             <SyncStatusIcon color={syncStatusIconState} />
                         </Margin>
                         <SyncStatusHeaderText>Sync Status</SyncStatusHeaderText>
                     </SyncStatusHeaderBox>
-                    <SettingsSection 
-                        vertical="auto" 
+                    <SettingsSection
+                        vertical="auto"
                         horizontal="17px"
-                        onClick={()=> window.open(SETTINGS_URL, '_self')}
+                        onClick={() => window.open(SETTINGS_URL, '_self')}
                     >
-                            <Icon heightAndWidth="18px" path={icons.settings} />
+                        <Icon heightAndWidth="18px" path={icons.settings} />
                     </SettingsSection>
-                    <SyncStatusMenu {...syncStatusMenuProps} />
+                    <SyncStatusMenu
+                        {...syncStatusMenuProps}
+                        syncStatusIconState={syncStatusIconState}
+                    />
                 </RightHeader>
             </Container>
         )

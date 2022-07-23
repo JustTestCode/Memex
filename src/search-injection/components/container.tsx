@@ -1,13 +1,12 @@
 import React from 'react'
-import PropTypes from 'prop-types'
-
-import { remoteFunction } from 'src/util/webextensionRPC'
+import { browser } from 'webextension-polyfill-ts'
+import { remoteFunction, runInBackground } from 'src/util/webextensionRPC'
 import Results from './Results'
 import strictUriEncode from 'strict-uri-encode'
 import ResultItem from './ResultItem'
 import RemovedText from './RemovedText'
 import * as constants from '../constants'
-import { getLocalStorage, setLocalStorage } from '../utils'
+import { getLocalStorage } from '../utils'
 import Notification from './Notification'
 import { UPDATE_NOTIFS } from '../../notifications/notifications'
 import * as actionTypes from '../../notifications/action-types'
@@ -18,16 +17,30 @@ import ToggleSwitch from '../../common-ui/components/ToggleSwitch'
 import { EVENT_NAMES } from '../../analytics/internal/constants'
 import type { SearchEngineName, ResultItemProps } from '../types'
 import PioneerPlanBanner from 'src/common-ui/components/pioneer-plan-banner'
-import { STORAGE_KEYS as DASHBOARD_STORAGE_KEYS } from 'src/dashboard-refactor/constants'
+import CloudUpgradeBanner from 'src/personal-cloud/ui/components/cloud-upgrade-banner'
+import { STORAGE_KEYS as CLOUD_STORAGE_KEYS } from 'src/personal-cloud/constants'
+import type { SyncSettingsStore } from 'src/sync-settings/util'
+import { OVERVIEW_URL } from 'src/constants'
+import { sleepPromise } from 'src/util/promises'
+import styled from 'styled-components'
+import LoadingIndicator from '@worldbrain/memex-common/lib/common-ui/components/loading-indicator'
+import Icon from '@worldbrain/memex-common/lib/common-ui/components/icon'
+
+const search = browser.runtime.getURL('/img/search.svg')
 
 export interface Props {
-    results: ResultItemProps[]
-    len: number
+    // results: ResultItemProps[]
+    // len: number
     rerender: () => void
     searchEngine: SearchEngineName
+    syncSettings: SyncSettingsStore<'dashboard' | 'searchInjection'>
+    query
+    requestSearcher
+    position
 }
 
 interface State {
+    isCloudUpgradeBannerShown: boolean
     isSubscriptionBannerShown: boolean
     hideResults: boolean
     dropdown: boolean
@@ -35,6 +48,7 @@ interface State {
     isNotif: boolean
     position: null | 'side' | 'above'
     notification: any
+    searchResults: ResultItemProps[] | null
 }
 
 class Container extends React.Component<Props, State> {
@@ -43,8 +57,9 @@ class Container extends React.Component<Props, State> {
     fetchNotifById: any
     processEvent: any
     openOverviewRPC: any
+    syncSettings: Props['syncSettings']
 
-    constructor(props) {
+    constructor(props: Props) {
         super(props)
         this.renderResultItems = this.renderResultItems.bind(this)
         this.seeMoreResults = this.seeMoreResults.bind(this)
@@ -60,9 +75,11 @@ class Container extends React.Component<Props, State> {
         this.fetchNotifById = remoteFunction('fetchNotifById')
         this.processEvent = remoteFunction('processEvent')
         this.openOverviewRPC = remoteFunction('openOverviewTab')
+        this.syncSettings = props.syncSettings
     }
 
     state: State = {
+        isCloudUpgradeBannerShown: false,
         isSubscriptionBannerShown: false,
         hideResults: true,
         dropdown: false,
@@ -70,11 +87,11 @@ class Container extends React.Component<Props, State> {
         position: null,
         isNotif: true,
         notification: {},
+        searchResults: null,
     }
 
     async componentDidMount() {
         let notification
-
         for (const notif of UPDATE_NOTIFS) {
             if (notif.search) {
                 notification = {
@@ -84,26 +101,57 @@ class Container extends React.Component<Props, State> {
             }
         }
 
-        const hideResults = await getLocalStorage(
-            constants.HIDE_RESULTS_KEY,
-            false,
+        const subBannerShownAfter = await this.props.syncSettings.dashboard.get(
+            'subscribeBannerShownAfter',
         )
-        const position = await getLocalStorage(constants.POSITION_KEY, 'side')
-        const subBannerDismissed = await getLocalStorage(
-            DASHBOARD_STORAGE_KEYS.subBannerDismissed,
-        )
+        const isCloudEnabled = await getLocalStorage(CLOUD_STORAGE_KEYS.isSetUp)
 
         let fetchNotif
         if (notification) {
             fetchNotif = await this.fetchNotifById(notification.id)
         }
 
+        const limit = constants.LIMIT[this.props.position]
+        const query = this.props.query
+
+        try {
+            const searchRes = await this.props.requestSearcher({
+                query,
+                limit: limit,
+            })
+            const searchResDocs = searchRes.docs.slice(0, limit)
+
+            this.setState({
+                searchResults: searchResDocs,
+            })
+        } catch (e) {
+            const searchRes = []
+            const searchResDocs = searchRes.slice(0, limit)
+            console.log(e)
+            this.setState({
+                searchResults: searchResDocs,
+            })
+        }
+
+        const hideResults =
+            ((await this.props.syncSettings.searchInjection.get(
+                'hideMemexResults',
+            )) ||
+                this.state.searchResults.length === 0) ??
+            false
+        const position =
+            (await this.props.syncSettings.searchInjection.get(
+                'memexResultsPosition',
+            )) ?? 'side'
+
         this.setState({
             hideResults,
             position,
             isNotif: fetchNotif && !fetchNotif.readTime,
             notification,
-            isSubscriptionBannerShown: !subBannerDismissed,
+            isCloudUpgradeBannerShown: !isCloudEnabled,
+            isSubscriptionBannerShown:
+                subBannerShownAfter != null && subBannerShownAfter < Date.now(),
         })
     }
 
@@ -113,15 +161,55 @@ class Container extends React.Component<Props, State> {
         })
 
     renderResultItems() {
-        const resultItems = this.props.results.map((result, i) => (
-            <ResultItem
-                key={i}
-                onLinkClick={this.handleResultLinkClick}
-                searchEngine={this.props.searchEngine}
-                {...result}
-            />
-        ))
-        return resultItems
+        if (!this.state.searchResults) {
+            return (
+                <LoadingBox>
+                    <LoadingIndicator />
+                </LoadingBox>
+            )
+        }
+
+        if (this.state.searchResults?.length > 0) {
+            const resultItems = this.state.searchResults.map((result, i) => (
+                <>
+                    <ResultItem
+                        key={i}
+                        onLinkClick={this.handleResultLinkClick}
+                        searchEngine={this.props.searchEngine}
+                        {...result}
+                        displayTime={result.displayTime}
+                        url={result.url}
+                        title={result.title}
+                        tags={result.tags}
+                    />
+                </>
+            ))
+
+            return resultItems
+        }
+
+        if (this.state.searchResults?.length === 0) {
+            return (
+                <NoResultsSection>
+                    <SectionCircle>
+                        <Icon
+                            filePath={search}
+                            heightAndWidth="20px"
+                            color="purple"
+                            hoverOff
+                        />
+                    </SectionCircle>
+                    <SectionTitle>No Results for this Query</SectionTitle>
+                    <InfoText>
+                        For more flexible search,
+                        <SearchLink onClick={this.seeMoreResults}>
+                            {' '}
+                            go to the dashboard
+                        </SearchLink>
+                    </InfoText>
+                </NoResultsSection>
+            )
+        }
     }
 
     seeMoreResults() {
@@ -136,7 +224,10 @@ class Container extends React.Component<Props, State> {
         // Toggles hideResults (minimize) state
         // And also, sets dropdown to false
         const toggled = !this.state.hideResults
-        await setLocalStorage(constants.HIDE_RESULTS_KEY, toggled)
+        await this.props.syncSettings.searchInjection.set(
+            'hideMemexResults',
+            toggled,
+        )
         this.setState({
             hideResults: toggled,
             dropdown: false,
@@ -163,15 +254,18 @@ class Container extends React.Component<Props, State> {
      * @param {boolean} isEnabled
      */
     async _persistEnabledChange(isEnabled) {
-        const prevState = await getLocalStorage(
-            constants.SEARCH_INJECTION_KEY,
-            constants.SEARCH_INJECTION_DEFAULT,
-        )
+        const prevState =
+            (await this.props.syncSettings.searchInjection.get(
+                'searchEnginesEnabled',
+            )) ?? constants.SEARCH_INJECTION_DEFAULT
 
-        await setLocalStorage(constants.SEARCH_INJECTION_KEY, {
-            ...prevState,
-            [this.props.searchEngine]: isEnabled,
-        })
+        await this.props.syncSettings.searchInjection.set(
+            'searchEnginesEnabled',
+            {
+                ...prevState,
+                [this.props.searchEngine]: isEnabled,
+            },
+        )
     }
 
     async removeResults() {
@@ -203,7 +297,10 @@ class Container extends React.Component<Props, State> {
     async changePosition() {
         const currPos = this.state.position
         const newPos = currPos === 'above' ? 'side' : 'above'
-        await setLocalStorage(constants.POSITION_KEY, newPos)
+        await this.props.syncSettings.searchInjection.set(
+            'memexResultsPosition',
+            newPos,
+        )
         this.props.rerender()
     }
 
@@ -251,9 +348,16 @@ class Container extends React.Component<Props, State> {
         window.open(url, '_blank').focus()
     }
 
+    async openDashboard() {
+        await browser.tabs.create({ url: OVERVIEW_URL })
+    }
+
     private handleSubBannerDismiss: React.MouseEventHandler = async (e) => {
         this.setState({ isSubscriptionBannerShown: false })
-        await setLocalStorage(DASHBOARD_STORAGE_KEYS.subBannerDismissed, true)
+        await this.props.syncSettings.dashboard.set(
+            'subscribeBannerShownAfter',
+            null,
+        )
     }
 
     renderButton() {
@@ -330,17 +434,24 @@ class Container extends React.Component<Props, State> {
 
         return (
             <>
-                {this.state.isSubscriptionBannerShown && (
-                    <PioneerPlanBanner
-                        onHideClick={this.handleSubBannerDismiss}
-                        width="415px"
-                        direction='column'
+                {this.state.isCloudUpgradeBannerShown && (
+                    <CloudUpgradeBanner
+                        onGetStartedClick={() => this.openOverviewRPC()}
+                        direction="column"
+                        width={this.state.position === 'side' && '420px'}
                     />
                 )}
+                {/* {this.state.isSubscriptionBannerShown && (
+                    <PioneerPlanBanner
+                        onHideClick={this.handleSubBannerDismiss}
+                        direction="column"
+                        showCloseButton={true}
+                    />
+                )} */}
                 <Results
                     position={this.state.position}
                     searchEngine={this.props.searchEngine}
-                    totalCount={this.props.len}
+                    totalCount={this.state.searchResults?.length}
                     seeMoreResults={this.seeMoreResults}
                     toggleHideResults={this.toggleHideResults}
                     hideResults={this.state.hideResults}
@@ -356,5 +467,53 @@ class Container extends React.Component<Props, State> {
         )
     }
 }
+
+const SearchLink = styled.span`
+    padding-left: 2px;
+    cursor: pointer;
+    color: ${(props) => props.theme.colors.purple};
+`
+
+const NoResultsSection = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    padding: 30px 0px;
+`
+
+const SectionCircle = styled.div`
+    background: ${(props) => props.theme.colors.backgroundHighlight};
+    border-radius: 100px;
+    height: 50px;
+    width: 50px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+`
+
+const SectionTitle = styled.div`
+    color: ${(props) => props.theme.colors.darkerText};
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 10px;
+`
+
+const InfoText = styled.div`
+    color: ${(props) => props.theme.colors.lighterText};
+    font-size: 14px;
+    font-weight: 400;
+    text-align: center;
+`
+
+const LoadingBox = styled.div`
+    border-radius: 3px;
+    margin-bottom: 30px;
+    height: 300px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+`
 
 export default Container

@@ -6,6 +6,8 @@ import AnnotationsManager from 'src/annotations/annotations-manager'
 import { AnnotationInterface } from 'src/annotations/background/types'
 import { AnnotationsCacheInterface } from 'src/annotations/annotations-cache'
 import { HighlightRendererInterface } from 'src/highlighting/ui/highlight-interactions'
+import { ContentFingerprint } from '@worldbrain/memex-common/lib/personal-cloud/storage/types'
+import type { RemoteSyncSettingsInterface } from 'src/sync-settings/background/types'
 
 export interface ContentScriptRegistry {
     registerRibbonScript(main: RibbonScriptMain): Promise<void>
@@ -16,7 +18,10 @@ export interface ContentScriptRegistry {
 }
 
 export type SidebarScriptMain = (
-    dependencies: Omit<SidebarContainerDependencies, 'pageUrl'>,
+    dependencies: Omit<
+        SidebarContainerDependencies,
+        'pageUrl' | 'sidebarContext'
+    >,
 ) => Promise<void>
 
 export type RibbonScriptMain = (
@@ -38,6 +43,7 @@ export interface HighlightDependencies {
 
 export interface SearchInjectionDependencies {
     requestSearcher: any
+    syncSettingsBG: RemoteSyncSettingsInterface
 }
 
 export type HighlightsScriptMain = (
@@ -51,3 +57,5 @@ export type TooltipScriptMain = (
 export type SearchInjectionMain = (
     dependencies: SearchInjectionDependencies,
 ) => Promise<void>
+
+export type GetContentFingerprints = () => Promise<ContentFingerprint[]>

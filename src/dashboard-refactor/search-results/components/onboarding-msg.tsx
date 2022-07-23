@@ -13,21 +13,16 @@ export default class OnboardingMsg extends React.PureComponent<Props> {
                 <Container>
                     <Description>
                         <span>
-                            <strong>
-                                Import your bookmarks to make them full-text
-                                searchable
-                            </strong>{' '}
-                            <br /> From Pocket, Diigo, Raindrop.io and many
-                            more.
+                            Want to{' '}
+                            <u onClick={this.props.goToImportRoute}>import</u>{' '}
+                            your bookmarks?
                         </span>
+                        <BookmarkingProviders
+                            onClick={this.props.goToImportRoute}
+                            src={'img/bookmarking-providers.svg'}
+                        />
                     </Description>
                 </Container>
-                <Button
-                    type="primary-action"
-                    onClick={this.props.goToImportRoute}
-                >
-                    Get Started
-                </Button>
             </>
         )
     }
@@ -39,14 +34,30 @@ const Container = styled.div`
     flex-direction: column;
     justify-content: center;
     width: 100%;
+    align-items: center;
+    margin-top: -10px;
+`
+
+const BookmarkingProviders = styled.img`
+    height: 150px;
+    display: flex;
+    position: relative;
+    margin-top: 10px;
+    cursor: pointer;
 `
 
 const Description = styled.div`
     font-size: 16px;
     font-weight: normal;
-    width: 75%;
-    margin: 1rem auto;
+    margin-top: 30px;
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    & u {
+        cursor: pointer;
+    }
 `
 
 const CTABtn = styled.button`

@@ -2,6 +2,8 @@ import React from 'react'
 import styled from 'styled-components'
 import { browser } from 'webextension-polyfill-ts'
 import ListShareModal from '@worldbrain/memex-common/lib/content-sharing/ui/list-share-modal'
+import { createGlobalStyle } from 'styled-components'
+import type { UIMutation } from 'ui-logic-core'
 
 import { StatefulUIElement } from 'src/util/ui-logic'
 import { DashboardLogic } from './logic'
@@ -15,10 +17,6 @@ import { shareListAndAllEntries } from './lists-sidebar/util'
 import * as searchResultUtils from './search-results/util'
 import DeleteConfirmModal from 'src/overview/delete-confirm-modal/components/DeleteConfirmModal'
 import SubscribeModal from 'src/authentication/components/Subscription/SubscribeModal'
-import {
-    isDuringInstall,
-    isExistingUserOnboarding,
-} from 'src/overview/onboarding/utils'
 import Onboarding from 'src/overview/onboarding'
 import { HelpBtn } from 'src/overview/help-btn'
 import FiltersBar from './header/filters-bar'
@@ -37,18 +35,30 @@ import analytics from 'src/analytics'
 import { copyToClipboard } from 'src/annotations/content_script/utils'
 import { deriveStatusIconColor } from './header/sync-status-menu/util'
 import { FILTER_PICKERS_LIMIT } from './constants'
-import BetaFeatureNotifModal from 'src/overview/sharing/components/BetaFeatureNotifModal'
 import DragElement from './components/DragElement'
 import Margin from './components/Margin'
 import { getFeedUrl, getListShareUrl } from 'src/content-sharing/utils'
 import { SharedListRoleID } from '@worldbrain/memex-common/lib/content-sharing/types'
 import type { Props as ListDetailsProps } from './search-results/components/list-details'
-import { SPECIAL_LIST_IDS } from '@worldbrain/memex-storage/lib/lists/constants'
+import { SPECIAL_LIST_IDS } from '@worldbrain/memex-common/lib/storage/modules/lists/constants'
 import LoginModal from 'src/overview/sharing/components/LoginModal'
+import CloudOnboardingModal from 'src/personal-cloud/ui/onboarding'
+import DisplayNameModal from 'src/overview/sharing/components/DisplayNameModal'
+import PdfLocator from './components/PdfLocator'
+import ConfirmModal from 'src/common-ui/components/ConfirmModal'
+import ConfirmDialog from 'src/common-ui/components/ConfirmDialog'
+import {
+    PRIVATIZE_ANNOT_MSG,
+    SELECT_SPACE_ANNOT_MSG,
+    PRIVATIZE_ANNOT_NEGATIVE_LABEL,
+    PRIVATIZE_ANNOT_AFFIRM_LABEL,
+    SELECT_SPACE_ANNOT_SUBTITLE,
+    SELECT_SPACE_NEGATIVE_LABEL,
+    SELECT_SPACE_AFFIRM_LABEL,
+} from 'src/overview/sharing/constants'
+import type { ListDetailsGetter } from 'src/annotations/types'
 
-export interface Props extends DashboardDependencies {
-    renderDashboardSwitcherLink: () => JSX.Element
-}
+export interface Props extends DashboardDependencies {}
 
 export class DashboardContainer extends StatefulUIElement<
     Props,
@@ -60,7 +70,28 @@ export class DashboardContainer extends StatefulUIElement<
             ? 'https://memex.social'
             : 'https://staging.memex.social'
 
-    static defaultProps: Partial<Props> = {
+    static defaultProps: Pick<
+        Props,
+        | 'analytics'
+        | 'copyToClipboard'
+        | 'document'
+        | 'location'
+        | 'localStorage'
+        | 'contentConversationsBG'
+        | 'activityIndicatorBG'
+        | 'personalCloudBG'
+        | 'contentShareBG'
+        | 'syncSettingsBG'
+        | 'annotationsBG'
+        | 'pdfViewerBG'
+        | 'searchBG'
+        | 'backupBG'
+        | 'listsBG'
+        | 'tagsBG'
+        | 'authBG'
+        | 'openFeed'
+        | 'openCollectionPage'
+    > = {
         analytics,
         copyToClipboard,
         document: window.document,
@@ -68,14 +99,16 @@ export class DashboardContainer extends StatefulUIElement<
         localStorage: browser.storage.local,
         contentConversationsBG: runInBackground(),
         activityIndicatorBG: runInBackground(),
+        personalCloudBG: runInBackground(),
         contentShareBG: runInBackground(),
+        syncSettingsBG: runInBackground(),
         annotationsBG: runInBackground(),
+        pdfViewerBG: runInBackground(),
         searchBG: runInBackground(),
         backupBG: runInBackground(),
         listsBG: runInBackground(),
         tagsBG: runInBackground(),
         authBG: runInBackground(),
-        syncBG: runInBackground(),
         openFeed: () => window.open(getFeedUrl(), '_blank'),
         openCollectionPage: (remoteListId) =>
             window.open(getListShareUrl({ remoteListId }), '_blank'),
@@ -91,18 +124,27 @@ export class DashboardContainer extends StatefulUIElement<
     constructor(props: Props) {
         super(props, new DashboardLogic(props))
 
-        this.annotationsCache = createAnnotationsCache({
-            contentSharing: props.contentShareBG,
-            annotations: props.annotationsBG,
-            tags: props.tagsBG,
-        })
+        this.annotationsCache = createAnnotationsCache(
+            {
+                contentSharing: props.contentShareBG,
+                annotations: props.annotationsBG,
+                customLists: props.listsBG,
+                tags: props.tagsBG,
+            },
+            { skipPageIndexing: true },
+        )
     }
 
+    private getListDetailsById: ListDetailsGetter = (id) => ({
+        name: this.state.listsSidebar.listData[id]?.name ?? 'Missing list',
+        isShared: this.state.listsSidebar.listData[id]?.remoteId != null,
+    })
+
     private getListDetailsProps = (): ListDetailsProps | null => {
-        const { listsSidebar, searchResults } = this.state
+        const { listsSidebar } = this.state
 
         if (
-            !listsSidebar.selectedListId ||
+            listsSidebar.selectedListId == null ||
             Object.values(SPECIAL_LIST_IDS).includes(
                 listsSidebar.selectedListId,
             )
@@ -119,7 +161,6 @@ export class DashboardContainer extends StatefulUIElement<
             remoteLink,
             listName: listData.name,
             localListId: listData.id,
-            sharingAccess: searchResults.sharingAccess,
             onAddContributorsClick: listData.isOwnedList
                 ? () =>
                       this.processEvent('setShareListId', {
@@ -129,79 +170,102 @@ export class DashboardContainer extends StatefulUIElement<
         }
     }
 
+    // TODO: move this to logic class - main reason it exists separately is that it needs to return the created list ID
+    private async createNewListViaPicker(name: string): Promise<number> {
+        const listId = await this.props.listsBG.createCustomList({ name })
+        this.processMutation({
+            listsSidebar: {
+                listData: {
+                    $apply: (listData) => ({
+                        ...listData,
+                        [listId]: {
+                            name,
+                            id: listId,
+                            isOwnedList: true,
+                        },
+                    }),
+                },
+            },
+        })
+        return listId
+    }
+
     private listsStateToProps = (
         listIds: number[],
         source: ListSource,
     ): ListSidebarItemProps[] => {
         const { listsSidebar } = this.state
 
-        return listIds
-            .sort((idA, idB) => {
-                const listDataA = listsSidebar.listData[idA]
-                const listDataB = listsSidebar.listData[idB]
-
-                if (listDataA.name < listDataB.name) {
-                    return -1
-                }
-                if (listDataA.name > listDataB.name) {
-                    return 1
-                }
-                return 0
-            })
-            .map((listId) => ({
-                source,
-                listId,
-                name: listsSidebar.listData[listId].name,
-                isEditing: listsSidebar.editingListId === listId,
-                isCollaborative:
+        return listIds.map((listId) => ({
+            source,
+            listId,
+            listData: listsSidebar.listData[listId],
+            name: listsSidebar.listData[listId].name,
+            isEditing: listsSidebar.editingListId === listId,
+            isCollaborative:
+                source === 'followed-lists'
+                    ? false
+                    : listsSidebar.listData[listId].remoteId != null,
+            isMenuDisplayed:
+                source === 'followed-lists'
+                    ? false
+                    : listsSidebar.showMoreMenuListId === listId,
+            selectedState: {
+                isSelected: listsSidebar.selectedListId === listId,
+                onSelection:
                     source === 'followed-lists'
-                        ? false
-                        : listsSidebar.listData[listId].remoteId != null,
-                isMenuDisplayed:
-                    source === 'followed-lists'
-                        ? false
-                        : listsSidebar.showMoreMenuListId === listId,
-                selectedState: {
-                    isSelected: listsSidebar.selectedListId === listId,
-                    onSelection:
-                        source === 'followed-lists'
-                            ? () =>
-                                  this.props.openCollectionPage(
-                                      listsSidebar.listData[listId].remoteId,
-                                  )
-                            : () =>
-                                  this.processEvent('setSelectedListId', {
-                                      listId: listsSidebar.listData[listId].id,
-                                  }),
-                },
-                editableProps: {
-                    onCancelClick: () =>
-                        this.processEvent('cancelListEdit', null),
-                    onConfirmClick: (value) =>
-                        this.processEvent('confirmListEdit', { value }),
-                    initValue: listsSidebar.listData[listId].name,
-                    errorMessage: listsSidebar.editListErrorMessage,
-                },
-                onMoreActionClick:
-                    source !== 'followed-lists' &&
-                    listsSidebar.listData[listId].isOwnedList
                         ? () =>
-                              this.processEvent('setShowMoreMenuListId', {
+                              this.props.openCollectionPage(
+                                  listsSidebar.listData[listId].remoteId,
+                              )
+                        : () =>
+                              this.processEvent('setSelectedListId', {
                                   listId: listsSidebar.listData[listId].id,
-                              })
-                        : undefined,
-                onRenameClick: () =>
-                    this.processEvent('setEditingListId', { listId }),
-                onDeleteClick: () =>
-                    this.processEvent('setDeletingListId', { listId }),
-                onShareClick: () =>
-                    this.processEvent('setShareListId', { listId }),
-            }))
+                              }),
+            },
+            editableProps: {
+                changeListName: (value) =>
+                    this.processEvent('changeListName', { value }),
+                onCancelClick: () => this.processEvent('cancelListEdit', null),
+                onConfirmClick: (value) =>
+                    this.processEvent('confirmListEdit', { value }),
+                initValue: listsSidebar.listData[listId].name,
+                errorMessage: listsSidebar.editListErrorMessage,
+            },
+            onMoreActionClick:
+                source !== 'followed-lists' &&
+                listsSidebar.listData[listId].isOwnedList
+                    ? () =>
+                          this.processEvent('setShowMoreMenuListId', {
+                              listId: listsSidebar.listData[listId].id,
+                          })
+                    : undefined,
+            onRenameClick: () =>
+                this.processEvent('setEditingListId', { listId }),
+            onDeleteClick: (e) => {
+                e.stopPropagation()
+                this.processEvent('setDeletingListId', { listId })
+            },
+            onSpaceShare: (remoteListId) =>
+                this.processEvent('setListRemoteId', {
+                    localListId: listId,
+                    remoteListId,
+                }),
+            services: {
+                ...this.props.services,
+                contentSharing: this.props.contentShareBG,
+            },
+            shareList: async () => {
+                await this.processEvent('shareList', {
+                    listId,
+                })
+            },
+        }))
     }
 
     private renderFiltersBar() {
         const { searchBG } = this.props
-        const { searchFilters } = this.state
+        const { searchFilters, searchResults } = this.state
 
         const toggleTagsFilter = () =>
             this.processEvent('toggleShowTagPicker', {
@@ -215,16 +279,24 @@ export class DashboardContainer extends StatefulUIElement<
             this.processEvent('toggleShowDomainPicker', {
                 isActive: !searchFilters.isDomainFilterActive,
             })
+        const toggleSpacesFilter = () =>
+            this.processEvent('toggleShowSpacePicker', {
+                isActive: !searchFilters.isSpaceFilterActive,
+            })
 
         return (
             <FiltersBar
+                searchFilters={searchFilters}
                 isDisplayed={searchFilters.searchFiltersOpen}
                 showTagsFilter={searchFilters.isTagFilterActive}
                 showDatesFilter={searchFilters.isDateFilterActive}
+                showSpaceFilter={searchFilters.isSpaceFilterActive}
                 showDomainsFilter={searchFilters.isDomainFilterActive}
-                toggleTagsFilter={toggleTagsFilter}
-                toggleDatesFilter={toggleDatesFilter}
                 toggleDomainsFilter={toggleDomainsFilter}
+                toggleSpaceFilter={toggleSpacesFilter}
+                toggleDatesFilter={toggleDatesFilter}
+                toggleTagsFilter={toggleTagsFilter}
+                areSpacesFiltered={searchFilters.spacesIncluded.length > 0}
                 areTagsFiltered={searchFilters.tagsIncluded.length > 0}
                 areDatesFiltered={
                     searchFilters.dateTo != null ||
@@ -273,37 +345,60 @@ export class DashboardContainer extends StatefulUIElement<
                             domains: updatePickerValues(args)(args.selected),
                         }),
                 }}
-                tagPickerProps={{
-                    onClickOutside: toggleTagsFilter,
-                    onEscapeKeyDown: toggleTagsFilter,
-                    initialSelectedEntries: () => searchFilters.tagsIncluded,
-                    queryEntries: (query) =>
-                        searchBG.suggest({
-                            query,
-                            type: 'tag',
-                            limit: FILTER_PICKERS_LIMIT,
+                tagPickerProps={
+                    searchResults.shouldShowTagsUIs && {
+                        onClickOutside: toggleTagsFilter,
+                        onEscapeKeyDown: toggleTagsFilter,
+                        initialSelectedEntries: () =>
+                            searchFilters.tagsIncluded,
+                        queryEntries: (query) =>
+                            searchBG.suggest({
+                                query,
+                                type: 'tag',
+                                limit: FILTER_PICKERS_LIMIT,
+                            }),
+                        loadDefaultSuggestions: () =>
+                            searchBG.extendedSuggest({
+                                type: 'tag',
+                                limit: FILTER_PICKERS_LIMIT,
+                                notInclude: [
+                                    ...searchFilters.tagsIncluded,
+                                    ...searchFilters.tagsExcluded,
+                                ],
+                            }),
+                        onUpdateEntrySelection: (args) =>
+                            this.processEvent('setTagsIncluded', {
+                                tags: updatePickerValues(args)(args.selected),
+                            }),
+                    }
+                }
+                spacePickerProps={{
+                    spacesBG: this.props.listsBG,
+                    onClickOutside: toggleSpacesFilter,
+                    onEscapeKeyDown: toggleSpacesFilter,
+                    contentSharingBG: this.props.contentShareBG,
+                    createNewEntry: () => undefined,
+                    initialSelectedEntries: () => searchFilters.spacesIncluded,
+                    selectEntry: (spaceId) =>
+                        this.processEvent('addIncludedSpace', {
+                            spaceId,
                         }),
-                    loadDefaultSuggestions: () =>
-                        searchBG.extendedSuggest({
-                            type: 'tag',
-                            limit: FILTER_PICKERS_LIMIT,
-                            notInclude: [
-                                ...searchFilters.tagsIncluded,
-                                ...searchFilters.tagsExcluded,
-                            ],
-                        }),
-                    onUpdateEntrySelection: (args) =>
-                        this.processEvent('setTagsIncluded', {
-                            tags: updatePickerValues(args)(args.selected),
-                        }),
+                    unselectEntry: (spaceId) =>
+                        this.processEvent('delIncludedSpace', { spaceId }),
                 }}
             />
         )
     }
 
     private renderHeader() {
-        const { searchFilters, listsSidebar, syncMenu } = this.state
-
+        const {
+            isCloudEnabled,
+            searchFilters,
+            listsSidebar,
+            currentUser,
+            syncMenu,
+        } = this.state
+        const syncStatusIconState = deriveStatusIconColor(this.state)
         return (
             <HeaderContainer
                 searchBarProps={{
@@ -339,35 +434,31 @@ export class DashboardContainer extends StatefulUIElement<
                 selectedListName={
                     listsSidebar.listData[listsSidebar.selectedListId]?.name
                 }
-                syncStatusIconState={deriveStatusIconColor(syncMenu)}
+                activityStatus={listsSidebar.hasFeedActivity}
+                syncStatusIconState={syncStatusIconState}
                 syncStatusMenuProps={{
                     ...syncMenu,
+                    isCloudEnabled,
+                    syncStatusIconState,
+                    isLoggedIn: currentUser != null,
                     outsideClickIgnoreClass:
                         HeaderContainer.SYNC_MENU_TOGGLE_BTN_CLASS,
+                    onLoginClick: () =>
+                        this.processEvent('setShowLoginModal', {
+                            isShown: true,
+                        }),
+                    onMigrateClick: () =>
+                        this.processEvent('setShowCloudOnboardingModal', {
+                            isShown: true,
+                        }),
                     onClickOutside: () =>
                         this.processEvent('setSyncStatusMenuDisplayState', {
                             isShown: false,
                         }),
-                    onToggleAutoBackup: () =>
-                        this.processEvent('toggleAutoBackup', null),
                     onToggleDisplayState: () =>
                         this.processEvent('setSyncStatusMenuDisplayState', {
                             isShown: !syncMenu.isDisplayed,
                         }),
-                    onHideUnsyncedItemCount: () =>
-                        this.processEvent('setUnsyncedItemCountShown', {
-                            isShown: false,
-                        }),
-                    onShowUnsyncedItemCount: () =>
-                        this.processEvent('setUnsyncedItemCountShown', {
-                            isShown: true,
-                        }),
-                    onInitiateBackup: () =>
-                        this.processEvent('initiateBackup', null),
-                    onInitiateSync: () =>
-                        this.processEvent('initiateSync', null),
-                    goToBackupRoute: this.bindRouteGoTo('backup'),
-                    goToSyncRoute: this.bindRouteGoTo('sync'),
                 }}
             />
         )
@@ -419,7 +510,7 @@ export class DashboardContainer extends StatefulUIElement<
                 listsGroups={[
                     {
                         ...listsSidebar.localLists,
-                        title: 'My collections',
+                        title: 'My Spaces',
                         onAddBtnClick: () =>
                             this.processEvent('setAddListInputShown', {
                                 isShown: !listsSidebar.localLists
@@ -427,7 +518,7 @@ export class DashboardContainer extends StatefulUIElement<
                             }),
                         confirmAddNewList: (value) =>
                             this.processEvent('confirmListCreate', { value }),
-                        cancelAddNewList: () =>
+                        cancelAddNewList: (shouldSave) =>
                             this.processEvent('cancelListCreate', null),
                         onExpandBtnClick: () =>
                             this.processEvent('setLocalListsExpanded', {
@@ -440,7 +531,7 @@ export class DashboardContainer extends StatefulUIElement<
                     },
                     {
                         ...listsSidebar.followedLists,
-                        title: 'Followed collections',
+                        title: 'Followed Spaces',
                         onExpandBtnClick: () =>
                             this.processEvent('setFollowedListsExpanded', {
                                 isExpanded: !listsSidebar.followedLists
@@ -453,17 +544,19 @@ export class DashboardContainer extends StatefulUIElement<
                     },
                 ]}
                 initDropReceivingState={(listId) => ({
-                    onDragEnter: () =>
-                        this.processEvent('setDragOverListId', { listId }),
+                    onDragEnter: () => {
+                        this.processEvent('setDragOverListId', { listId })
+                    },
                     onDragLeave: () =>
                         this.processEvent('setDragOverListId', {
                             listId: undefined,
                         }),
-                    onDrop: (dataTransfer: DataTransfer) =>
+                    onDrop: (dataTransfer: DataTransfer) => {
                         this.processEvent('dropPageOnListItem', {
                             listId,
                             dataTransfer,
-                        }),
+                        })
+                    },
                     isDraggedOver: listId === listsSidebar.dragOverListId,
                     wasPageDropped:
                         listsSidebar.listData[listId]?.wasPageDropped,
@@ -472,12 +565,35 @@ export class DashboardContainer extends StatefulUIElement<
         )
     }
 
+    private renderPdfLocator() {
+        return (
+            <PdfLocator
+                title="Test title"
+                url="https://testsite.com/test.pdf"
+            />
+        )
+    }
+
     private renderSearchResults() {
-        const { searchResults, listsSidebar } = this.state
+        const { searchResults, listsSidebar, searchFilters } = this.state
 
         return (
             <SearchResultsContainer
-                goToImportRoute={this.bindRouteGoTo('import')}
+                listData={listsSidebar.listData}
+                getListDetailsById={this.getListDetailsById}
+                toggleSortMenuShown={() =>
+                    this.processEvent('setSortMenuShown', {
+                        isShown: !searchResults.isSortMenuShown,
+                    })
+                }
+                searchResults={searchResults.pageData}
+                searchFilters={searchFilters}
+                searchQuery={searchFilters.searchQuery}
+                isDisplayed={searchFilters.searchFiltersOpen}
+                goToImportRoute={() => {
+                    this.bindRouteGoTo('import')()
+                    this.processEvent('dismissOnboardingMsg', null)
+                }}
                 toggleListShareMenu={() =>
                     this.processEvent('setListShareMenuShown', {
                         isShown: !searchResults.isListShareMenuShown,
@@ -488,9 +604,9 @@ export class DashboardContainer extends StatefulUIElement<
                         listId: listsSidebar.selectedListId,
                     })
                 }
-                updateAllResultNotesShareInfo={(info) =>
+                updateAllResultNotesShareInfo={(shareStates) =>
                     this.processEvent('updateAllPageResultNotesShareInfo', {
-                        info,
+                        shareStates,
                     })
                 }
                 selectedListId={listsSidebar.selectedListId}
@@ -499,11 +615,16 @@ export class DashboardContainer extends StatefulUIElement<
                 onDismissMobileAd={() =>
                     this.processEvent('dismissMobileAd', null)
                 }
-                onDismissOnboardingMsg={() =>
+                onDismissOnboardingMsg={() => {
                     this.processEvent('dismissOnboardingMsg', null)
-                }
+                }}
                 onDismissSubscriptionBanner={() =>
                     this.processEvent('dismissSubscriptionBanner', null)
+                }
+                showCloudOnboardingModal={() =>
+                    this.processEvent('setShowCloudOnboardingModal', {
+                        isShown: true,
+                    })
                 }
                 noResultsType={searchResults.noResultsType}
                 filterSearchByTag={(tag) =>
@@ -558,19 +679,18 @@ export class DashboardContainer extends StatefulUIElement<
                     onNotesBtnClick: (day, pageId) => (e) => {
                         const pageData = searchResults.pageData.byId[pageId]
                         if (e.shiftKey) {
-                            this.notesSidebarRef.current.toggleSidebarShowForPageId(
-                                pageData.fullUrl,
-                            )
+                            this.processEvent('setPageNotesShown', {
+                                day,
+                                pageId,
+                                areShown: !searchResults.results[day].pages
+                                    .byId[pageId].areNotesShown,
+                            })
                             return
                         }
 
-                        this.processEvent('setPageNotesShown', {
-                            day,
-                            pageId,
-                            areShown: !searchResults.results[day].pages.byId[
-                                pageId
-                            ].areNotesShown,
-                        })
+                        this.notesSidebarRef.current.toggleSidebarShowForPageId(
+                            pageData.fullUrl,
+                        )
                     },
                     onTagPickerBtnClick: (day, pageId) => () =>
                         this.processEvent('setPageTagPickerShown', {
@@ -627,6 +747,12 @@ export class DashboardContainer extends StatefulUIElement<
                             pageId,
                             hover: 'tags',
                         }),
+                    onListsHover: (day, pageId) => () =>
+                        this.processEvent('setPageHover', {
+                            day,
+                            pageId,
+                            hover: 'lists',
+                        }),
                     onUnhover: (day, pageId) => () =>
                         this.processEvent('setPageHover', {
                             day,
@@ -646,12 +772,14 @@ export class DashboardContainer extends StatefulUIElement<
                         }),
                     onPageDrop: (day, pageId) => () =>
                         this.processEvent('dropPage', { day, pageId }),
-                    updatePageNotesShareInfo: (day, pageId) => (info) =>
+                    updatePageNotesShareInfo: (day, pageId) => (shareStates) =>
                         this.processEvent('updatePageNotesShareInfo', {
                             day,
                             pageId,
-                            info,
+                            shareStates,
                         }),
+                    createNewList: (day, pageId) => async (name) =>
+                        this.createNewListViaPicker(name),
                 }}
                 pagePickerProps={{
                     onListPickerUpdate: (pageId) => (args) =>
@@ -670,6 +798,8 @@ export class DashboardContainer extends StatefulUIElement<
                         }),
                 }}
                 newNoteInteractionProps={{
+                    getListDetailsById: (day, pageId) =>
+                        this.getListDetailsById,
                     onCancel: (day, pageId) => () =>
                         this.processEvent('cancelPageNewNote', {
                             day,
@@ -687,11 +817,34 @@ export class DashboardContainer extends StatefulUIElement<
                             pageId,
                             tags,
                         }),
-                    onSave: (day, pageId) => (privacyLevel) =>
+                    createNewList: (day, pageId) => async (name) =>
+                        this.createNewListViaPicker(name),
+                    addPageToList: (day, pageId) => (listId) =>
+                        this.processEvent('setPageNewNoteLists', {
+                            day,
+                            pageId,
+                            lists: [
+                                ...this.state.searchResults.results[day].pages
+                                    .byId[pageId].newNoteForm.lists,
+                                listId,
+                            ],
+                        }),
+                    removePageFromList: (day, pageId) => (listId) =>
+                        this.processEvent('setPageNewNoteLists', {
+                            day,
+                            pageId,
+                            lists: this.state.searchResults.results[
+                                day
+                            ].pages.byId[pageId].newNoteForm.lists.filter(
+                                (id) => id !== listId,
+                            ),
+                        }),
+                    onSave: (day, pageId) => (shouldShare, isProtected) =>
                         this.processEvent('savePageNewNote', {
                             day,
                             pageId,
-                            privacyLevel,
+                            isProtected,
+                            shouldShare,
                             fullPageUrl:
                                 searchResults.pageData.byId[pageId].fullUrl,
                         }),
@@ -706,10 +859,30 @@ export class DashboardContainer extends StatefulUIElement<
                         this.processEvent('cancelNoteEdit', {
                             noteId,
                         }),
-                    onEditConfirm: (noteId) => () =>
-                        this.processEvent('saveNoteEdit', {
-                            noteId,
-                        }),
+                    onEditConfirm: (noteId) => (showExternalConfirmations) => (
+                        shouldShare,
+                        isProtected,
+                        opts,
+                    ) => {
+                        const prev = this.state.searchResults.noteData.byId[
+                            noteId
+                        ]
+                        const toMakeNonPublic =
+                            showExternalConfirmations &&
+                            prev.isShared &&
+                            !shouldShare
+                        return this.processEvent(
+                            toMakeNonPublic
+                                ? 'setPrivatizeNoteConfirmArgs'
+                                : 'saveNoteEdit',
+                            {
+                                noteId,
+                                shouldShare,
+                                isProtected,
+                                ...opts,
+                            },
+                        )
+                    },
                     onGoToHighlightClick: (noteId) => () =>
                         this.processEvent('goToHighlightInNewTab', { noteId }),
                     onTagPickerBtnClick: (noteId) => () =>
@@ -717,6 +890,12 @@ export class DashboardContainer extends StatefulUIElement<
                             noteId,
                             isShown: !searchResults.noteData.byId[noteId]
                                 .isTagPickerShown,
+                        }),
+                    onListPickerBtnClick: (noteId) => () =>
+                        this.processEvent('setNoteListPickerShown', {
+                            noteId,
+                            isShown: !searchResults.noteData.byId[noteId]
+                                .isListPickerShown,
                         }),
                     onCopyPasterBtnClick: (noteId) => () =>
                         this.processEvent('setNoteCopyPasterShown', {
@@ -732,6 +911,32 @@ export class DashboardContainer extends StatefulUIElement<
                         }),
                     updateTags: (noteId) => (args) =>
                         this.processEvent('setNoteTags', { ...args, noteId }),
+                    updateLists: (noteId) => (args) => {
+                        const {
+                            isShared: isAnnotShared,
+                        } = this.state.searchResults.noteData.byId[noteId]
+                        const isListShared =
+                            this.state.listsSidebar.listData[
+                                args.added ?? args.deleted
+                            ]?.remoteId != null
+
+                        return this.processEvent(
+                            isAnnotShared &&
+                                isListShared &&
+                                args.deleted == null &&
+                                args.options?.showExternalConfirmations
+                                ? 'setSelectNoteSpaceConfirmArgs'
+                                : 'setNoteLists',
+                            {
+                                ...args,
+                                noteId,
+                                protectAnnotation:
+                                    args.options?.protectAnnotation,
+                            },
+                        )
+                    },
+                    createNewList: (noteId) => async (name) =>
+                        this.createNewListViaPicker(name),
                     onTrashBtnClick: (noteId, day, pageId) => () =>
                         this.processEvent('setDeletingNoteArgs', {
                             noteId,
@@ -747,14 +952,16 @@ export class DashboardContainer extends StatefulUIElement<
                         this.processEvent('setNoteShareMenuShown', {
                             mouseEvent,
                             noteId,
+                            platform: navigator.platform,
                             shouldShow:
                                 searchResults.noteData.byId[noteId]
                                     .shareMenuShowStatus === 'hide',
                         }),
-                    updateShareInfo: (noteId) => (info) =>
+                    updateShareInfo: (noteId) => (state, opts) =>
                         this.processEvent('updateNoteShareInfo', {
                             noteId,
-                            info,
+                            privacyLevel: state.privacyLevel,
+                            keepListsIfUnsharing: opts?.keepListsIfUnsharing,
                         }),
                 }}
                 searchCopyPasterProps={{
@@ -778,11 +985,57 @@ export class DashboardContainer extends StatefulUIElement<
     private renderModals() {
         const { modals: modalsState, listsSidebar } = this.state
 
+        if (modalsState.confirmPrivatizeNoteArgs) {
+            return (
+                <ConfirmModal
+                    isShown
+                    onClose={() =>
+                        this.processEvent('setPrivatizeNoteConfirmArgs', null)
+                    }
+                >
+                    <ConfirmDialog
+                        titleText={PRIVATIZE_ANNOT_MSG}
+                        negativeLabel={PRIVATIZE_ANNOT_NEGATIVE_LABEL}
+                        affirmativeLabel={PRIVATIZE_ANNOT_AFFIRM_LABEL}
+                        handleConfirmation={(affirmative) => () =>
+                            this.processEvent('saveNoteEdit', {
+                                ...modalsState.confirmPrivatizeNoteArgs,
+                                keepListsIfUnsharing: !affirmative,
+                            })}
+                    />
+                </ConfirmModal>
+            )
+        }
+
+        if (modalsState.confirmSelectNoteSpaceArgs) {
+            return (
+                <ConfirmModal
+                    isShown
+                    onClose={() =>
+                        this.processEvent('setSelectNoteSpaceConfirmArgs', null)
+                    }
+                >
+                    <ConfirmDialog
+                        titleText={SELECT_SPACE_ANNOT_MSG}
+                        subTitleText={SELECT_SPACE_ANNOT_SUBTITLE}
+                        affirmativeLabel={SELECT_SPACE_AFFIRM_LABEL}
+                        negativeLabel={SELECT_SPACE_NEGATIVE_LABEL}
+                        handleConfirmation={(affirmative) => () =>
+                            this.processEvent('setNoteLists', {
+                                ...modalsState.confirmSelectNoteSpaceArgs,
+                                protectAnnotation: affirmative,
+                            })}
+                    />
+                </ConfirmModal>
+            )
+        }
+
         if (modalsState.deletingListId) {
             return (
                 <DeleteConfirmModal
                     isShown
-                    message="Delete collection? This does not delete the pages in it"
+                    message="Delete this Space?"
+                    submessage="This does not delete the pages in it"
                     onClose={() => this.processEvent('cancelListDelete', null)}
                     deleteDocs={() =>
                         this.processEvent('confirmListDelete', null)
@@ -818,11 +1071,13 @@ export class DashboardContainer extends StatefulUIElement<
         }
 
         if (modalsState.showLogin) {
-            const closeLoginModal = () =>
-                this.processEvent('setShowLoginModal', { isShown: false })
             return (
                 <LoginModal
-                    onClose={closeLoginModal}
+                    onClose={() =>
+                        this.processEvent('setShowLoginModal', {
+                            isShown: false,
+                        })
+                    }
                     authBG={this.props.authBG}
                     contentSharingBG={this.props.contentShareBG}
                     onSuccess={() =>
@@ -830,6 +1085,19 @@ export class DashboardContainer extends StatefulUIElement<
                             () => this.processEvent('checkSharingAccess', null),
                             1000,
                         )
+                    }
+                />
+            )
+        }
+
+        if (modalsState.showDisplayNameSetup) {
+            return (
+                <DisplayNameModal
+                    authBG={this.props.authBG}
+                    onClose={() =>
+                        this.processEvent('setShowDisplayNameSetupModal', {
+                            isShown: false,
+                        })
                     }
                 />
             )
@@ -873,17 +1141,16 @@ export class DashboardContainer extends StatefulUIElement<
             )
         }
 
-        if (modalsState.showBetaFeature) {
+        if (modalsState.showCloudOnboarding) {
             return (
-                <BetaFeatureNotifModal
-                    showSubscriptionModal={() =>
-                        this.processEvent('setShowSubscriptionModal', {
-                            isShown: true,
-                        })
-                    }
-                    onClose={() =>
-                        this.processEvent('setShowBetaFeatureModal', {
-                            isShown: false,
+                <CloudOnboardingModal
+                    services={this.props.services}
+                    backupBG={this.props.backupBG}
+                    syncSettingsBG={this.props.syncSettingsBG}
+                    personalCloudBG={this.props.personalCloudBG}
+                    onModalClose={(args) =>
+                        this.processEvent('closeCloudOnboardingModal', {
+                            didFinish: !!args.didFinish,
                         })
                     }
                 />
@@ -894,17 +1161,15 @@ export class DashboardContainer extends StatefulUIElement<
     }
 
     render() {
-        const { listsSidebar } = this.state
-        if (isDuringInstall(this.props.location)) {
+        // <GlobalFonts />
+        // <GlobalStyle />
+        const { listsSidebar, mode } = this.state
+        if (mode === 'onboarding') {
             return (
-                <>
-                    <Onboarding
-                        startOnLoginStep={isExistingUserOnboarding(
-                            this.props.location,
-                        )}
-                    />
-                    <HelpBtn />
-                </>
+                <Onboarding
+                    authBG={this.props.authBG}
+                    personalCloudBG={this.props.personalCloudBG}
+                />
             )
         }
 
@@ -912,10 +1177,11 @@ export class DashboardContainer extends StatefulUIElement<
             <Container>
                 {this.renderHeader()}
                 {this.renderFiltersBar()}
-                {this.props.renderDashboardSwitcherLink()}
                 <Margin bottom="5px" />
                 {this.renderListsSidebar()}
-                {this.renderSearchResults()}
+                {mode === 'locate-pdf'
+                    ? this.renderPdfLocator()
+                    : this.renderSearchResults()}
                 {this.renderModals()}
                 <NotesSidebar
                     tags={this.props.tagsBG}
@@ -925,19 +1191,18 @@ export class DashboardContainer extends StatefulUIElement<
                     annotations={this.props.annotationsBG}
                     annotationsCache={this.annotationsCache}
                     contentSharing={this.props.contentShareBG}
+                    syncSettingsBG={this.props.syncSettingsBG}
                     contentConversationsBG={this.props.contentConversationsBG}
-                    showLoginModal={() =>
-                        this.processEvent('setShowLoginModal', {
-                            isShown: true,
+                    setLoginModalShown={(isShown) =>
+                        this.processEvent('setShowLoginModal', { isShown })
+                    }
+                    setDisplayNameModalShown={(isShown) =>
+                        this.processEvent('setShowDisplayNameSetupModal', {
+                            isShown,
                         })
                     }
                     showAnnotationShareModal={() =>
                         this.processEvent('setShowNoteShareOnboardingModal', {
-                            isShown: true,
-                        })
-                    }
-                    showBetaFeatureNotifModal={() =>
-                        this.processEvent('setShowBetaFeatureModal', {
                             isShown: true,
                         })
                     }
@@ -952,11 +1217,26 @@ export class DashboardContainer extends StatefulUIElement<
     }
 }
 
+const GlobalStyle = createGlobalStyle`
+
+    * {
+        font-family: 'Inter', sans-serif;,
+    }
+
+    body {
+        font-family: 'Inter', sans-serif;';
+    }
+`
+
 const Container = styled.div`
-    display: flex;
-    flex-direction: column;
-    width: fill-available;
-    background-color: #f6f8fb;
-    min-height: 100vh;
-    height: 100%;
+display: flex;
+flex-direction: column;
+width: fill-available;
+background-color: ${(props) => props.theme.colors.backgroundColor};
+min-height: 100vh;
+height: 100%;
+
+    & * {
+        font-family: 'Inter', sans-serif;,
+    }
 `

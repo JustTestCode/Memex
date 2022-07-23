@@ -1,33 +1,32 @@
-import React, { ChangeEvent } from 'react'
+import React from 'react'
 import styled from 'styled-components'
 import { X as XIcon } from '@styled-icons/feather'
 import { ActiveList } from 'src/custom-lists/ui/CollectionPicker/components/ActiveList'
+import * as icons from 'src/common-ui/components/design-library/icons'
+import Icon from '@worldbrain/memex-common/lib/common-ui/components/icon'
 
 interface Props {
-    dataAttributeName: string
-    entriesSelected: string[]
-    onPress: (entry: string) => void
+    entries: Array<{ localId: number; name: string }>
+    onPress: (entryId: number) => void
 }
 
 export class EntrySelectedList extends React.PureComponent<Props> {
-    private get dataAttribute(): string {
-        return `data-${this.props.dataAttributeName}`
+    handleSelectedTabPress = (listId: number): React.MouseEventHandler => (
+        event,
+    ) => {
+        this.props.onPress(listId)
     }
-
-    handleSelectedTabPress = (event: ChangeEvent) =>
-        this.props.onPress(event.target.getAttribute(this.dataAttribute))
 
     render() {
         return (
             <React.Fragment>
-                {this.props.entriesSelected?.map((entry) => (
+                {this.props.entries?.map((entry) => (
                     <StyledActiveEntry
-                        key={`ActiveTab-${entry}`}
-                        onClick={this.handleSelectedTabPress}
-                        {...{ [this.dataAttribute]: entry }} // Need to set a dynamic prop here
+                        key={`ActiveTab-${entry.localId}`}
+                        onClick={this.handleSelectedTabPress(entry.localId)}
                     >
-                        <Entry>{entry}</Entry>
-                        <StyledXIcon size={12} />
+                        <Entry>{entry.name}</Entry>
+                        <Icon heightAndWidth={'10px'} filePath={icons.close} />
                     </StyledActiveEntry>
                 ))}
             </React.Fragment>
@@ -38,27 +37,19 @@ export class EntrySelectedList extends React.PureComponent<Props> {
 const StyledActiveEntry = styled(ActiveList)`
     display: inline-flex;
     cursor: pointer;
-    max-width: 100%;
+    min-height: 18px;
+    padding: 2px 8px;
+    &:hover {
+        background: ${(props) => props.theme.colors.darkhover};
+    }
 `
 
 const Entry = styled.div`
     display: block;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: break-spaces;
     overflow-x: hidden;
     text-overflow: ellipsis;
-`
-
-const StyledXIcon = styled(XIcon)`
-    stroke: ${(props) => props.theme.tag.text};
-    stroke-width: 2px;
-    margin-left: 4px;
-    display: flex;
-    flex-shrink: 0;
-    pointer-events: none;
-
-    &:hover {
-        stroke-width: 3px;
-        stroke: darken(0.2, ${(props) => props.theme.tag.text});
-    }
+    font-size: 14px;
+    color: ${(props) => props.theme.colors.normalText};
 `

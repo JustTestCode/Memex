@@ -1,14 +1,14 @@
-import { KeyboardShortcuts, Shortcut } from './types'
+import type { Shortcut, BaseKeyboardShortcuts } from './types'
 import {
     KEYBOARDSHORTCUTS_DEFAULT_STATE,
     KEYBOARDSHORTCUTS_STORAGE_NAME,
 } from './constants'
 import { setLocalStorage } from 'src/util/storage'
-import { getKeyName } from 'src/util/os-specific-key-names'
+import { getKeyName } from '@worldbrain/memex-common/lib/utils/os-specific-key-names'
 
-export function shortcutStorageToState(storage): KeyboardShortcuts {
+export function shortcutStorageToState(storage): BaseKeyboardShortcuts {
     const defaults = KEYBOARDSHORTCUTS_DEFAULT_STATE
-    const keys: (keyof KeyboardShortcuts)[] = [
+    const keys: (keyof BaseKeyboardShortcuts)[] = [
         'addToCollection',
         'addComment',
         'addTag',
@@ -22,7 +22,7 @@ export function shortcutStorageToState(storage): KeyboardShortcuts {
         'shortcutsEnabled',
     ]
 
-    const shortcuts: Partial<KeyboardShortcuts> = {}
+    const shortcuts: Partial<BaseKeyboardShortcuts> = {}
     for (const key of keys) {
         if (key === 'shortcutsEnabled') {
             shortcuts[key] = storage[key] || false
@@ -40,15 +40,23 @@ export function shortcutStorageToState(storage): KeyboardShortcuts {
                 storage[shortcutKey] != null
                     ? storage[shortcutKey]
                     : defaults[shortcutKey],
+            altName:
+                key === 'createAnnotation'
+                    ? 'createSharedAnnotation'
+                    : key === 'createHighlight'
+                    ? 'createSharedHighlight'
+                    : key === 'addToCollection'
+                    ? 'createSharedAnnotationAndAddToCollection'
+                    : undefined,
         }
     }
-    return shortcuts as KeyboardShortcuts
+    return shortcuts as BaseKeyboardShortcuts
 }
 
 const shortcutStateToStorage = ({
     shortcutsEnabled,
     ...state
-}: KeyboardShortcuts) => {
+}: BaseKeyboardShortcuts) => {
     const defaults = KEYBOARDSHORTCUTS_DEFAULT_STATE
     const storage = {
         shortcutsEnabled:
@@ -72,7 +80,7 @@ const shortcutStateToStorage = ({
 }
 
 export async function setKeyboardShortcutsState(
-    newKeyboardShortcutsState: KeyboardShortcuts,
+    newKeyboardShortcutsState: BaseKeyboardShortcuts,
 ) {
     return setLocalStorage(
         KEYBOARDSHORTCUTS_STORAGE_NAME,

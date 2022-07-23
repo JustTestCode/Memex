@@ -3,10 +3,9 @@ import React from 'react'
 import ShareAnnotationMenu from './components/ShareAnnotationMenu'
 import { executeReactStateUITask } from 'src/util/ui-logic'
 import { getPageShareUrl } from 'src/content-sharing/utils'
-import { AnnotationPrivacyLevels } from 'src/annotations/types'
-import { ShareMenuCommonProps, ShareMenuCommonState } from './types'
+import type { ShareMenuCommonProps, ShareMenuCommonState } from './types'
 import { runInBackground } from 'src/util/webextensionRPC'
-import { getKeyName } from 'src/util/os-specific-key-names'
+import { getKeyName } from '@worldbrain/memex-common/lib/utils/os-specific-key-names'
 
 interface State extends ShareMenuCommonState {}
 
@@ -31,32 +30,20 @@ export default class AllNotesShareMenu extends React.Component<Props, State> {
     }
 
     async componentDidMount() {
+        const { annotationsBG, normalizedPageUrl } = this.props
         await executeReactStateUITask<State, 'loadState'>(
             this,
             'loadState',
             async () => {
                 await this.setRemoteLink()
 
-                const annotations = await this.props.annotationsBG.listAnnotationsByPageUrl(
-                    {
-                        pageUrl: this.props.normalizedPageUrl,
-                    },
+                const annotations = await annotationsBG.listAnnotationsByPageUrl(
+                    { pageUrl: normalizedPageUrl },
                 )
                 this.annotationUrls = annotations.map((a) => a.url)
             },
         )
     }
-
-    private createAnnotationPrivacyLevels = (
-        privacyLevel: AnnotationPrivacyLevels,
-    ) =>
-        this.annotationUrls.reduce(
-            (acc, annotation) => ({
-                ...acc,
-                [annotation]: privacyLevel,
-            }),
-            {},
-        )
 
     private handleLinkCopy = () => this.props.copyLink(this.state.link)
 
@@ -68,81 +55,44 @@ export default class AllNotesShareMenu extends React.Component<Props, State> {
     }
 
     private shareAllAnnotations = async () => {
-        let success = false
         try {
-            await this.props.contentSharingBG.shareAnnotations({
+            const {
+                sharingStates,
+            } = await this.props.contentSharingBG.shareAnnotations({
                 annotationUrls: this.annotationUrls,
-                queueInteraction: 'skip-queue',
+                shareToLists: true,
             })
-            await this.props.contentSharingBG.shareAnnotationsToLists({
-                annotationUrls: this.annotationUrls,
-                queueInteraction: 'skip-queue',
-            })
-            success = true
+            this.props.postBulkShareHook?.(sharingStates)
         } catch (err) {}
-
-        this.props.postShareHook?.({
-            privacyLevel: AnnotationPrivacyLevels.SHARED,
-            shareStateChanged: success,
-        })
     }
 
     private unshareAllAnnotations = async () => {
-        let success = false
         try {
-            await Promise.all(
-                this.annotationUrls.map((annotationUrl) =>
-                    this.props.contentSharingBG
-                        .unshareAnnotation({
-                            annotationUrl,
-                            queueInteraction: 'skip-queue',
-                        })
-                        .catch((err) => {}),
-                ),
-            )
-            success = true
+            const {
+                sharingStates,
+            } = await this.props.contentSharingBG.unshareAnnotations({
+                annotationUrls: this.annotationUrls,
+            })
+            this.props.postBulkShareHook?.(sharingStates)
         } catch (err) {}
-
-        this.props.postUnshareHook?.({
-            privacyLevel: AnnotationPrivacyLevels.PRIVATE,
-            shareStateChanged: success,
-        })
     }
 
-    private handleSetShared: React.MouseEventHandler = async (e) => {
-        const { annotationsBG } = this.props
-        const annotationPrivacyLevels = this.createAnnotationPrivacyLevels(
-            AnnotationPrivacyLevels.SHARED,
-        )
-
+    private handleSetShared = async () => {
         await executeReactStateUITask<State, 'shareState'>(
             this,
             'shareState',
             async () => {
                 await this.shareAllAnnotations()
-                await annotationsBG.updateAnnotationPrivacyLevels({
-                    annotationPrivacyLevels,
-                    respectProtected: true,
-                })
             },
         )
     }
 
-    private handleSetPrivate: React.MouseEventHandler = async (e) => {
-        const { annotationsBG } = this.props
-        const annotationPrivacyLevels = this.createAnnotationPrivacyLevels(
-            AnnotationPrivacyLevels.PRIVATE,
-        )
-
+    private handleSetPrivate = async () => {
         await executeReactStateUITask<State, 'shareState'>(
             this,
             'shareState',
             async () => {
                 await this.unshareAllAnnotations()
-                await annotationsBG.updateAnnotationPrivacyLevels({
-                    annotationPrivacyLevels,
-                    respectProtected: true,
-                })
             },
         )
     }
@@ -151,33 +101,35 @@ export default class AllNotesShareMenu extends React.Component<Props, State> {
         return (
             <ShareAnnotationMenu
                 showLink
+                context={'AllNotesShare'}
                 link={this.state.link}
                 onCopyLinkClick={this.handleLinkCopy}
                 onClickOutside={this.props.closeShareMenu}
-                linkTitleCopy="Link to page and shared notes"
-                privacyOptionsTitleCopy="Set privacy for all notes on this page"
+                linkTitleCopy="Link to page and its public annotations"
+                privacyOptionsTitleCopy="Set privacy for all annotations on this page"
                 isLoading={
                     this.state.shareState === 'running' ||
                     this.state.loadState === 'running'
                 }
                 privacyOptions={[
                     {
+                        title: 'Public',
+                        shortcut: `shift+${AllNotesShareMenu.MOD_KEY}+enter`,
+                        description:
+                            'Auto-added to Spaces the page is shared to',
+                        icon: 'webLogo',
+                        onClick: this.handleSetShared,
+                    },
+                    {
                         title: 'Private',
                         shortcut: `${AllNotesShareMenu.MOD_KEY}+enter`,
-                        description: 'Only locally available to you',
+                        description: 'Private to you, until made public',
                         icon: 'person',
                         onClick: this.handleSetPrivate,
                     },
-                    {
-                        title: 'Shared',
-                        shortcut: `shift+${AllNotesShareMenu.ALT_KEY}+enter`,
-                        description: 'Shared in collections this page is in',
-                        icon: 'shared',
-                        onClick: this.handleSetShared,
-                    },
                 ]}
                 shortcutHandlerDict={{
-                    'alt+shift+enter': this.handleSetShared,
+                    'mod+shift+enter': this.handleSetShared,
                     'mod+enter': this.handleSetPrivate,
                 }}
             />

@@ -1,118 +1,112 @@
-import { UILogic, UIEvent, IncomingUIEvent, UIMutation } from 'ui-logic-core'
-import { getDefaultState } from './default-state'
+import {
+    UILogic,
+    loadInitial,
+    executeUITask,
+    UIEventHandler,
+} from '@worldbrain/memex-common/lib/main-ui/classes/logic'
+import type { Dependencies, State, Event } from './types'
+import delay from 'src/util/delay'
 
-export interface State {
-    visitDelay: number
-    currentStep: number
-    isTooltipEnabled: boolean
-    isSidebarEnabled: boolean
-    areStubsEnabled: boolean
-    areVisitsEnabled: boolean
-    isTrackingEnabled: boolean
-    areShortcutsEnabled: boolean
-    areBookmarksEnabled: boolean
-    areAnnotationsEnabled: boolean
-    areScreenshotsEnabled: boolean
-    areCollectionsEnabled: boolean
-    showSearchSettings: boolean
-}
-
-export type Event = UIEvent<{
-    setStep: { step: number }
-    setVisitDelay: { delay: number }
-    setTooltipEnabled: { enabled: boolean }
-    setSidebarEnabled: { enabled: boolean }
-    setShortcutsEnabled: { enabled: boolean }
-    setSearchSettingsShown: { shown: boolean }
-    setStubsEnabled: { enabled: boolean }
-    setVisitsEnabled: { enabled: boolean }
-    setTrackingEnabled: { enabled: boolean }
-    setBookmarksEnabled: { enabled: boolean }
-    setAnnotationsEnabled: { enabled: boolean }
-    setScreenshotsEnabled: { enabled: boolean }
-    setCollectionsEnabled: { enabled: boolean }
-}>
+type EventHandler<EventName extends keyof Event> = UIEventHandler<
+    State,
+    Event,
+    EventName
+>
 
 export default class Logic extends UILogic<State, Event> {
-    getInitialState(): State {
-        return getDefaultState()
+    syncPromise: Promise<any>
+    isExistingUser = false
+    action?: 'login' | 'register'
+
+    constructor(private dependencies: Dependencies) {
+        super()
     }
 
-    setTrackingEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setTrackingEnabled'>,
-    ): UIMutation<State> {
-        return { isTrackingEnabled: { $set: incoming.event.enabled } }
+    getInitialState = (): State => ({
+        step: 'tutorial',
+        loadState: 'pristine',
+        syncState: 'pristine',
+        shouldShowLogin: true,
+        newSignUp: false,
+        mode: 'signup',
+        email: '',
+        password: '',
+        displayName: '',
+        saveState: 'pristine',
+        passwordMatch: false,
+        passwordConfirm: '',
+        setSaveState: 'pristine',
+    })
+
+    async init() {
+        const { authBG } = this.dependencies
+
+        this.emitMutation({
+            mode: { $set: 'signup' },
+        })
+
+        await loadInitial(this, async () => {
+            const user = await authBG.getCurrentUser()
+            if (user != null) {
+                this.isExistingUser = true
+                await this._onUserLogIn(false)
+            }
+        })
     }
 
-    setStep(
-        incoming: IncomingUIEvent<State, Event, 'setStep'>,
-    ): UIMutation<State> {
-        return { currentStep: { $set: incoming.event.step } }
+    private async _onUserLogIn(newSignUp: boolean) {
+        this.emitMutation({
+            newSignUp: { $set: newSignUp },
+        })
+
+        if (!this.isExistingUser) {
+            this.emitMutation({
+                shouldShowLogin: { $set: false },
+            })
+            this.syncPromise = executeUITask(this, 'syncState', async () =>
+                this.dependencies.personalCloudBG.enableCloudSyncForNewInstall(),
+            )
+        }
+        if (!newSignUp) {
+            this.emitMutation({
+                setSaveState: { $set: 'running' },
+                authDialogMode: { $set: 'login' },
+            })
+            this.syncPromise = executeUITask(this, 'syncState', async () =>
+                this.dependencies.personalCloudBG.enableCloudSyncForNewInstall(),
+            )
+            this.dependencies.navToDashboard()
+        }
     }
 
-    setVisitDelay(
-        incoming: IncomingUIEvent<State, Event, 'setVisitDelay'>,
-    ): UIMutation<State> {
-        return { visitDelay: { $set: incoming.event.delay } }
+    onUserLogIn: EventHandler<'onUserLogIn'> = async ({ event }) => {
+        await this._onUserLogIn(!!event.newSignUp)
     }
 
-    setTooltipEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setTooltipEnabled'>,
-    ): UIMutation<State> {
-        return { isTooltipEnabled: { $set: incoming.event.enabled } }
+    goToSyncStep: EventHandler<'goToSyncStep'> = async ({ previousState }) => {
+        if (!this.isExistingUser && !previousState.newSignUp) {
+            this.emitMutation({ step: { $set: 'sync' } })
+
+            await (previousState.syncState === 'success'
+                ? delay(3000)
+                : this.syncPromise)
+        }
+        this.dependencies.navToDashboard()
     }
 
-    setSidebarEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setSidebarEnabled'>,
-    ): UIMutation<State> {
-        return { isSidebarEnabled: { $set: incoming.event.enabled } }
+    goToGuidedTutorial: EventHandler<'goToGuidedTutorial'> = ({}) => {
+        this.dependencies.navToGuidedTutorial()
     }
 
-    setShortcutsEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setShortcutsEnabled'>,
-    ): UIMutation<State> {
-        return { areShortcutsEnabled: { $set: incoming.event.enabled } }
+    finishOnboarding: EventHandler<'finishOnboarding'> = ({}) => {
+        this.dependencies.navToDashboard()
     }
 
-    setSearchSettingsShown(
-        incoming: IncomingUIEvent<State, Event, 'setSearchSettingsShown'>,
-    ): UIMutation<State> {
-        return { showSearchSettings: { $set: incoming.event.shown } }
+    setAuthDialogMode: EventHandler<'setAuthDialogMode'> = ({ event }) => {
+        return { authDialogMode: { $set: event.mode } }
     }
 
-    setStubsEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setStubsEnabled'>,
-    ): UIMutation<State> {
-        return { areStubsEnabled: { $set: incoming.event.enabled } }
-    }
-
-    setVisitsEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setVisitsEnabled'>,
-    ): UIMutation<State> {
-        return { areVisitsEnabled: { $set: incoming.event.enabled } }
-    }
-
-    setBookmarksEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setBookmarksEnabled'>,
-    ): UIMutation<State> {
-        return { areBookmarksEnabled: { $set: incoming.event.enabled } }
-    }
-
-    setAnnotationsEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setAnnotationsEnabled'>,
-    ): UIMutation<State> {
-        return { areAnnotationsEnabled: { $set: incoming.event.enabled } }
-    }
-
-    setScreenshotsEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setScreenshotsEnabled'>,
-    ): UIMutation<State> {
-        return { areScreenshotsEnabled: { $set: incoming.event.enabled } }
-    }
-
-    setCollectionsEnabled(
-        incoming: IncomingUIEvent<State, Event, 'setCollectionsEnabled'>,
-    ): UIMutation<State> {
-        return { areCollectionsEnabled: { $set: incoming.event.enabled } }
+    setSaveState: EventHandler<'setSaveState'> = ({ event }) => {
+        return { setSaveState: { $set: event.setSaveState } }
     }
 }

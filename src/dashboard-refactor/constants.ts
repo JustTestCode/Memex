@@ -1,6 +1,6 @@
 export const sizeConstants = {
     header: {
-        heightPx: 45,
+        heightPx: 60,
     },
     searchBar: {
         heightPx: 50,
@@ -49,7 +49,7 @@ export const EXCLUDE_PATTERN = /^-(site:)?(?=\w+)/
  */
 export const TERM_CLEAN_PATTERN = /^-?(site:)?-?(?=\w+)/
 
-export const DATE_PICKER_DATE_FORMAT = 'DD-MM-YYYY'
+export const DATE_PICKER_DATE_FORMAT = 'DD. MMM YYYY'
 
 export const PAGE_SIZE = 10
 
@@ -64,9 +64,9 @@ export const TAG_CLEAN_PATTERN = /[#"]/g
 const KEY_PREFIX = '@Dashboard-'
 
 export const STORAGE_KEYS = {
-    subBannerDismissed: KEY_PREFIX + 'subscribe_banner_dismissed',
-    listSidebarLocked: KEY_PREFIX + 'list_sidebar_locked',
-    onboardingMsgSeen: KEY_PREFIX + 'onboarding_msg_seen',
+    __OLD_subBannerDismissed: KEY_PREFIX + 'subscribe_banner_dismissed',
+    __OLD_listSidebarLocked: KEY_PREFIX + 'list_sidebar_locked',
+    __OLD_onboardingMsgSeen: KEY_PREFIX + 'onboarding_msg_seen',
     mobileAdSeen: KEY_PREFIX + 'mobile_ad_seen',
     useOldDash: KEY_PREFIX + 'use_old_dashboard',
 }
@@ -78,6 +78,6 @@ export const STORAGE_KEYS = {
  */
 export const PAGE_SEARCH_DUMMY_DAY = -1
 
-export const NON_UNIQ_LIST_NAME_ERR_MSG = 'List name already taken.'
-
 export const FILTER_PICKERS_LIMIT = 20
+
+export const MISSING_PDF_QUERY_PARAM = 'missing-pdf'

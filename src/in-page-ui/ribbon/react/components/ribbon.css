@@ -1,7 +1,17 @@
-@import url('/fonts/Poppins/poppins.css');
+@import url('/fonts/Inter/inter.css');
 
 :host * {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', sans-serif;
+}
+
+.extraPanel {
+    all: initial;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+}
+
+.extraButtonText {
+    font-weight: normal;
 }
 
 .horizontalLine {
@@ -22,27 +32,33 @@
     border-bottom-left-radius: 5px;
     border: 1px solid #7777775c;
     border-right: none; */
-    width: 8px;
-    height: 40vh;
+    width: 24px;
+    height: 400px;
 
     /* box-shadow: -1px 2px 5px 0px rgba(0, 0, 0, 0.16); */
     line-height: normal;
     text-align: start;
     align-items: center;
+    background: transparent;
+    z-index: 2147483647;
 }
 
 .ribbonExpanded {
-    transition: all 0.1s ease-in-out;
     align-items: flex-end;
+    width: 44px;
+    padding-right: 25px;
 }
 
 .ribbonSidebarOpen {
     box-shadow: none;
-    background: #f6f8fb;
+    background: #f8fbff;
     display: flex;
-    justify-content: flex-end;
+    justify-content: center;
     height: 105vh;
     width: 40px;
+    border-left: 1px solid #eceff4;
+    align-items: flex-start;
+    padding-right: 5px;
 
     & .removeSidebar {
         visibility: hidden;
@@ -56,34 +72,34 @@
 
 .innerRibbon {
     position: absolute;
-    right: 10px;
-    top: 40px;
+    top: 20px;
+    width: 30px;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     padding: 5px 0;
     display: none;
-    width: 30px;
 }
 
 .innerRibbonExpanded {
     border-radius: 20px;
-    box-shadow: -1px 1px 7px 2px #13131321;
-    background: #f6f8fb;
+    background: white;
     display: flex;
+    box-shadow: 0px 22px 26px 18px rgba(0, 0, 0, 0.03);
+    border: 1px solid #f0f0f0;
 }
 
 .innerRibbonSidebarOpen {
     box-shadow: none;
-    right: 0px;
     height: 100%;
     top: 0px;
+    width: 40px;
     justify-content: flex-start;
-    padding-right: 16px;
-    padding-top: 45px;
-    width: 20px;
-    align-items: flex-end;
+    padding-top: 17px;
     display: flex;
+    background: transparent;
+    border: none;
+    align-items: center;
 }
 
 /* SECTIONS */
@@ -197,11 +213,12 @@
 }
 
 .comments {
-    background-image: url('/img/comment_add.svg');
+    background-image: url('/img/comment_empty.svg');
 }
 
 .bookmark {
     background-image: url('/img/star_full.svg');
+    cursor: default;
 }
 
 .notBookmark {
@@ -212,12 +229,20 @@
     background-image: url('/img/settings.svg');
 }
 
+.help {
+    background-image: url('/img/help.svg');
+}
+
 .highlightsOn {
     background-image: url('/img/highlightOn.svg');
 }
 
 .highlightsOff {
     background-image: url('/img/highlightOff.svg');
+}
+
+.helpIcon {
+    background-image: url('/img/help.svg');
 }
 
 .tooltipOn {

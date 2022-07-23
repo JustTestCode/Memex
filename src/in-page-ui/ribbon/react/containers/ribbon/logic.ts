@@ -4,11 +4,7 @@ import * as componentTypes from '../../components/types'
 import { SharedInPageUIInterface } from 'src/in-page-ui/shared-state/types'
 import { TaskState } from 'ui-logic-core/lib/types'
 import { loadInitial } from 'src/util/ui-logic'
-import {
-    NewAnnotationOptions,
-    AnnotationPrivacyLevels,
-} from 'src/annotations/types'
-import { generateUrl } from 'src/annotations/utils'
+import { generateAnnotationUrl } from 'src/annotations/utils'
 import { resolvablePromise } from 'src/util/resolvable'
 import { FocusableComponent } from 'src/annotations/components/types'
 import { Analytics } from 'src/analytics'
@@ -19,6 +15,10 @@ export type PropKeys<Base, ValueCondition> = keyof Pick<
         [Key in keyof Base]: Base[Key] extends ValueCondition ? Key : never
     }[keyof Base]
 >
+
+// TODO: get rid of this stuff. I think it was added in an attempt to derive more from what already is there,
+//   but ultimately it adds a lot more complexity around the types here, which doesn't exist on any other
+//   UI logic class in the project. Makes it really difficult to alter the signatures of events here
 type ValuesOf<Props> = Omit<Props, PropKeys<Props, Function>> // tslint:disable-line
 type HandlersOf<Props> = {
     // tslint:disable-next-line
@@ -37,7 +37,7 @@ export interface RibbonContainerState {
     loadState: TaskState
     isRibbonEnabled: boolean | null
     areExtraButtonsShown: boolean
-
+    areTutorialShown: boolean
     highlights: ValuesOf<componentTypes.RibbonHighlightsProps>
     tooltip: ValuesOf<componentTypes.RibbonTooltipProps>
     // sidebar: ValuesOf<componentTypes.RibbonSidebarProps>
@@ -56,13 +56,17 @@ export type RibbonContainerEvents = UIEvent<
         toggleRibbon: null
         highlightAnnotations: null
         toggleShowExtraButtons: null
+        toggleShowTutorial: null
         hydrateStateFromDB: { url: string }
-        saveNewPageComment: (annotation: NewAnnotationOptions) => void
     } & SubcomponentHandlers<'highlights'> &
         SubcomponentHandlers<'tooltip'> &
         // SubcomponentHandlers<'sidebar'> &
-        SubcomponentHandlers<'commentBox'> &
-        SubcomponentHandlers<'bookmark'> &
+        Omit<SubcomponentHandlers<'commentBox'>, 'saveComment'> & {
+            saveComment: {
+                shouldShare: boolean
+                isProtected?: boolean
+            }
+        } & SubcomponentHandlers<'bookmark'> &
         SubcomponentHandlers<'tagging'> &
         SubcomponentHandlers<'lists'> &
         SubcomponentHandlers<'search'> &
@@ -88,6 +92,7 @@ export const INITIAL_RIBBON_COMMENT_BOX_STATE = {
     showCommentBox: false,
     isCommentSaved: false,
     tags: [],
+    lists: [],
 }
 
 export class RibbonContainerLogic extends UILogic<
@@ -109,9 +114,10 @@ export class RibbonContainerLogic extends UILogic<
 
     getInitialState(): RibbonContainerState {
         return {
-            pageUrl: this.dependencies.getPageUrl(),
+            pageUrl: null,
             loadState: 'pristine',
             areExtraButtonsShown: false,
+            areTutorialShown: false,
             isRibbonEnabled: null,
             highlights: {
                 areHighlightsEnabled: false,
@@ -127,10 +133,11 @@ export class RibbonContainerLogic extends UILogic<
                 tags: [],
                 showTagsPicker: false,
                 pageHasTags: false,
+                shouldShowTagsUIs: false,
             },
             lists: {
                 showListsPicker: false,
-                pageBelongsToList: false,
+                pageListIds: [],
             },
             search: {
                 showSearchBox: false,
@@ -143,8 +150,20 @@ export class RibbonContainerLogic extends UILogic<
     }
 
     init: EventHandler<'init'> = async (incoming) => {
+        const { getPageUrl, syncSettings } = this.dependencies
+
         await loadInitial<RibbonContainerState>(this, async () => {
-            const url = this.dependencies.getPageUrl()
+            const [url, areTagsMigrated] = await Promise.all([
+                getPageUrl(),
+                syncSettings.extension.get('areTagsMigratedToSpaces'),
+            ])
+
+            this.emitMutation({
+                pageUrl: { $set: url },
+                tagging: {
+                    shouldShowTagsUIs: { $set: !areTagsMigrated },
+                },
+            })
             await this.hydrateStateFromDB({ ...incoming, event: { url } })
         })
         this.initLogicResolvable.resolve()
@@ -190,11 +209,7 @@ export class RibbonContainerLogic extends UILogic<
                     $set: tags.length > 0,
                 },
             },
-            lists: {
-                pageBelongsToList: {
-                    $set: lists.length > 0,
-                },
-            },
+            lists: { pageListIds: { $set: lists } },
         })
     }
 
@@ -224,11 +239,35 @@ export class RibbonContainerLogic extends UILogic<
     toggleShowExtraButtons: EventHandler<'toggleShowExtraButtons'> = ({
         previousState,
     }) => {
+        this.dependencies.setRibbonShouldAutoHide(
+            previousState.areExtraButtonsShown,
+        )
         const mutation: UIMutation<RibbonContainerState> = {
             areExtraButtonsShown: { $set: !previousState.areExtraButtonsShown },
+            areTutorialShown: { $set: false },
         }
 
         if (!previousState.areExtraButtonsShown) {
+            mutation.commentBox = { showCommentBox: { $set: false } }
+            mutation.tagging = { showTagsPicker: { $set: false } }
+            mutation.lists = { showListsPicker: { $set: false } }
+        }
+
+        this.emitMutation(mutation)
+    }
+
+    toggleShowTutorial: EventHandler<'toggleShowTutorial'> = ({
+        previousState,
+    }) => {
+        this.dependencies.setRibbonShouldAutoHide(
+            previousState.areTutorialShown,
+        )
+        const mutation: UIMutation<RibbonContainerState> = {
+            areTutorialShown: { $set: !previousState.areTutorialShown },
+            areExtraButtonsShown: { $set: false },
+        }
+
+        if (!previousState.areTutorialShown) {
             mutation.commentBox = { showCommentBox: { $set: false } }
             mutation.tagging = { showTagsPicker: { $set: false } }
             mutation.lists = { showListsPicker: { $set: false } }
@@ -260,17 +299,13 @@ export class RibbonContainerLogic extends UILogic<
             })
 
         const shouldBeBookmarked = !postInitState.bookmark.isBookmarked
-        updateState(shouldBeBookmarked)
 
         try {
             if (shouldBeBookmarked) {
+                updateState(shouldBeBookmarked)
                 await this.dependencies.bookmarks.addPageBookmark({
                     fullUrl: postInitState.pageUrl,
                     tabId: this.dependencies.currentTab.id,
-                })
-            } else {
-                await this.dependencies.bookmarks.delPageBookmark({
-                    url: postInitState.pageUrl,
                 })
             }
         } catch (err) {
@@ -287,6 +322,7 @@ export class RibbonContainerLogic extends UILogic<
     }) => {
         await this.initLogicResolvable
         this.dependencies.setRibbonShouldAutoHide(!event.value)
+
         const extra: UIMutation<RibbonContainerState> =
             event.value === true
                 ? {
@@ -294,6 +330,7 @@ export class RibbonContainerLogic extends UILogic<
                       lists: { showListsPicker: { $set: false } },
                       search: { showSearchBox: { $set: false } },
                       areExtraButtonsShown: { $set: false },
+                      areTutorialShown: { $set: false },
                   }
                 : {}
 
@@ -308,10 +345,9 @@ export class RibbonContainerLogic extends UILogic<
     }
 
     saveComment: EventHandler<'saveComment'> = async ({
-        event,
+        event: { shouldShare, isProtected },
         previousState: { pageUrl, commentBox },
     }) => {
-        const { annotationsCache, contentSharing } = this.dependencies
         const comment = commentBox.commentText.trim()
         if (comment.length === 0) {
             return
@@ -319,7 +355,10 @@ export class RibbonContainerLogic extends UILogic<
 
         this.emitMutation({ commentBox: { showCommentBox: { $set: false } } })
 
-        const annotationUrl = generateUrl({ pageUrl, now: () => Date.now() })
+        const annotationUrl = generateAnnotationUrl({
+            pageUrl,
+            now: () => Date.now(),
+        })
 
         this.emitMutation({
             commentBox: {
@@ -330,13 +369,20 @@ export class RibbonContainerLogic extends UILogic<
             },
         })
 
-        await annotationsCache.create({
-            url: annotationUrl,
-            pageUrl,
-            comment,
-            tags: commentBox.tags,
-            privacyLevel: event.value,
-        })
+        await this.dependencies.annotationsCache.create(
+            {
+                pageUrl,
+                comment,
+                url: annotationUrl,
+                tags: commentBox.tags,
+                lists: commentBox.lists,
+            },
+            {
+                shouldShare,
+                shouldCopyShareLink: shouldShare,
+                isBulkShareProtected: isProtected,
+            },
+        )
 
         this.dependencies.setRibbonShouldAutoHide(true)
 
@@ -344,17 +390,11 @@ export class RibbonContainerLogic extends UILogic<
             setTimeout(resolve, this.commentSavedTimeout),
         )
         this.emitMutation({ commentBox: { isCommentSaved: { $set: false } } })
-
-        if (event.value === AnnotationPrivacyLevels.SHARED) {
-            await contentSharing.shareAnnotation({ annotationUrl })
-            await contentSharing.shareAnnotationsToLists({
-                annotationUrls: [annotationUrl],
-                queueInteraction: 'skip-queue',
-            })
-        }
     }
 
     cancelComment: EventHandler<'cancelComment'> = () => {
+        this.dependencies.setRibbonShouldAutoHide(true)
+
         this.emitMutation({
             commentBox: { $set: INITIAL_RIBBON_COMMENT_BOX_STATE },
         })
@@ -372,6 +412,12 @@ export class RibbonContainerLogic extends UILogic<
         this.emitMutation({ commentBox: { tags: { $set: event.value } } })
     }
 
+    updateCommentBoxLists: EventHandler<'updateCommentBoxLists'> = ({
+        event,
+    }) => {
+        this.emitMutation({ commentBox: { lists: { $set: event.value } } })
+    }
+
     //
     // Tagging
     //
@@ -387,6 +433,7 @@ export class RibbonContainerLogic extends UILogic<
                       lists: { showListsPicker: { $set: false } },
                       search: { showSearchBox: { $set: false } },
                       areExtraButtonsShown: { $set: false },
+                      areTutorialShown: { $set: false },
                   }
                 : {}
 
@@ -461,17 +508,32 @@ export class RibbonContainerLogic extends UILogic<
         previousState,
         event,
     }) => {
+        const pageListsSet = new Set(previousState.lists.pageListIds)
+        if (event.value.added != null) {
+            pageListsSet.add(event.value.added)
+        } else {
+            pageListsSet.delete(event.value.deleted)
+        }
+        this.emitMutation({
+            lists: { pageListIds: { $set: [...pageListsSet] } },
+        })
+
+        await this.dependencies.annotationsCache.updatePublicAnnotationLists({
+            added: event.value.added,
+            deleted: event.value.deleted,
+        })
         return this.dependencies.customLists.updateListForPage({
             added: event.value.added,
             deleted: event.value.deleted,
             url: previousState.pageUrl,
             tabId: this.dependencies.currentTab.id,
+            skipPageIndexing: event.value.skipPageIndexing,
         })
     }
 
     listAllTabs: EventHandler<'listAllTabs'> = ({ event }) => {
         return this.dependencies.customLists.addOpenTabsToList({
-            name: event.value,
+            listId: event.value,
         })
     }
 
@@ -487,6 +549,7 @@ export class RibbonContainerLogic extends UILogic<
                       tagging: { showTagsPicker: { $set: false } },
                       search: { showSearchBox: { $set: false } },
                       areExtraButtonsShown: { $set: false },
+                      areTutorialShown: { $set: false },
                   }
                 : {}
 
@@ -504,6 +567,7 @@ export class RibbonContainerLogic extends UILogic<
                       tagging: { showTagsPicker: { $set: false } },
                       lists: { showListsPicker: { $set: false } },
                       areExtraButtonsShown: { $set: false },
+                      areTutorialShown: { $set: false },
                   }
                 : {}
 

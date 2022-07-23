@@ -6,33 +6,25 @@ import {
 import {
     COLLECTION_DEFINITIONS,
     COLLECTION_NAMES,
-} from '@worldbrain/memex-storage/lib/annotations/constants'
-import { COLLECTION_NAMES as PAGE_COLLECTION_NAMES } from '@worldbrain/memex-storage/lib/pages/constants'
-import { COLLECTION_NAMES as TAG_COLLECTION_NAMES } from '@worldbrain/memex-storage/lib/tags/constants'
-import { COLLECTION_NAMES as LIST_COLLECTION_NAMES } from '@worldbrain/memex-storage/lib/lists/constants'
+} from '@worldbrain/memex-common/lib/storage/modules/annotations/constants'
+import { COLLECTION_NAMES as PAGE_COLLECTION_NAMES } from '@worldbrain/memex-common/lib/storage/modules/pages/constants'
+import { COLLECTION_NAMES as TAG_COLLECTION_NAMES } from '@worldbrain/memex-common/lib/storage/modules/tags/constants'
+import { COLLECTION_NAMES as LIST_COLLECTION_NAMES } from '@worldbrain/memex-common/lib/storage/modules/lists/constants'
 
 import { Tag } from 'src/search'
 import { AnnotationsListPlugin } from 'src/search/background/annots-list'
 import { AnnotSearchParams } from 'src/search/background/types'
 import { STORAGE_VERSIONS } from 'src/storage/constants'
-import {
-    Annotation,
-    AnnotListEntry,
-    AnnotationPrivacyLevels,
-    AnnotationPrivacyLevel,
-} from 'src/annotations/types'
+import { Annotation, AnnotListEntry } from 'src/annotations/types'
 import { normalizeUrl } from '@worldbrain/memex-url-utils'
 
 export default class AnnotationStorage extends StorageModule {
     static PAGES_COLL = PAGE_COLLECTION_NAMES.page
     static ANNOTS_COLL = COLLECTION_NAMES.annotation
-    static ANNOTS_PRIVACY_COLL = COLLECTION_NAMES.annotationPrivacy
     static TAGS_COLL = TAG_COLLECTION_NAMES.tag
     static BMS_COLL = COLLECTION_NAMES.bookmark
     static LISTS_COLL = LIST_COLLECTION_NAMES.list
     static LIST_ENTRIES_COLL = COLLECTION_NAMES.listEntry
-
-    static generateAnnotationPrivacyLevelId = () => Date.now()
 
     constructor(private options: { storageManager: Storex }) {
         super({ storageManager: options.storageManager })
@@ -99,10 +91,25 @@ export default class AnnotationStorage extends StorageModule {
                 operation: 'findObjects',
                 args: { url: { $in: '$urls:array:pk' } },
             },
+            findListEntry: {
+                collection: AnnotationStorage.LIST_ENTRIES_COLL,
+                operation: 'findObject',
+                args: { url: '$url:pk', listId: '$listId:pk' },
+            },
             findListEntriesByUrl: {
                 collection: AnnotationStorage.LIST_ENTRIES_COLL,
                 operation: 'findObjects',
                 args: { url: '$url:pk' },
+            },
+            findListEntriesByUrls: {
+                collection: AnnotationStorage.LIST_ENTRIES_COLL,
+                operation: 'findObjects',
+                args: { url: { $in: '$urls:pk' } },
+            },
+            findListEntriesByList: {
+                collection: AnnotationStorage.LIST_ENTRIES_COLL,
+                operation: 'findObjects',
+                args: { listId: '$listId:pk' },
             },
             createAnnotationForList: {
                 collection: AnnotationStorage.LIST_ENTRIES_COLL,
@@ -171,117 +178,23 @@ export default class AnnotationStorage extends StorageModule {
                 operation: 'findObjects',
                 args: { url: { $in: '$annotationUrls:string[]' } },
             },
+            listAnnotationListsForAnnotations: {
+                collection: AnnotationStorage.LIST_ENTRIES_COLL,
+                operation: 'findObjects',
+                args: { url: { $in: '$annotationUrls:string[]' } },
+            },
             listAnnotationBookmarksForAnnotations: {
                 collection: AnnotationStorage.BMS_COLL,
                 operation: 'findObjects',
                 args: { url: { $in: '$annotationUrls:string[]' } },
             },
-            createAnnotationPrivacyLevel: {
-                collection: AnnotationStorage.ANNOTS_PRIVACY_COLL,
-                operation: 'createObject',
-            },
-            findAnnotationPrivacyLevel: {
-                collection: AnnotationStorage.ANNOTS_PRIVACY_COLL,
+            findListById: {
+                collection: AnnotationStorage.LISTS_COLL,
                 operation: 'findObject',
-                args: { annotation: '$annotation:string' },
-            },
-            findAnnotationPrivacyLevels: {
-                collection: AnnotationStorage.ANNOTS_PRIVACY_COLL,
-                operation: 'findObjects',
-                args: { annotation: { $in: '$annotations:string' } },
-            },
-            deleteAnnotationPrivacyLevel: {
-                collection: AnnotationStorage.ANNOTS_PRIVACY_COLL,
-                operation: 'deleteObjects',
-                args: { annotation: '$annotation:string' },
-            },
-            updateAnnotationPrivacyLevel: {
-                collection: AnnotationStorage.ANNOTS_PRIVACY_COLL,
-                operation: 'updateObjects',
-                args: [
-                    {
-                        annotation: '$annotation:string',
-                    },
-                    {
-                        privacyLevel: '$privacyLevel:int',
-                        updatedWhen: '$updatedWhen:timestamp',
-                    },
-                ],
+                args: { id: '$id:pk' },
             },
         },
     })
-
-    async createAnnotationPrivacyLevel(params: {
-        id?: number
-        annotation: string
-        privacyLevel: AnnotationPrivacyLevels
-        createdWhen?: Date
-    }): Promise<void> {
-        await this.operation('createAnnotationPrivacyLevel', {
-            id:
-                params.id ??
-                AnnotationStorage.generateAnnotationPrivacyLevelId(),
-            annotation: params.annotation,
-            privacyLevel: params.privacyLevel,
-            createdWhen: params.createdWhen ?? new Date(),
-        })
-    }
-
-    async findAnnotationPrivacyLevel(params: {
-        annotation: string
-    }): Promise<AnnotationPrivacyLevel | null> {
-        return this.operation('findAnnotationPrivacyLevel', {
-            annotation: params.annotation,
-        })
-    }
-
-    async getPrivacyLevelsByAnnotation(params: {
-        annotations: string[]
-    }): Promise<{ [annotationId: string]: AnnotationPrivacyLevel }> {
-        const privacyLevels: AnnotationPrivacyLevel[] = await this.operation(
-            'findAnnotationPrivacyLevels',
-            {
-                annotations: params.annotations,
-            },
-        )
-
-        return privacyLevels.reduce(
-            (acc, privacyLevel) => ({
-                ...acc,
-                [privacyLevel.annotation]: privacyLevel,
-            }),
-            {},
-        )
-    }
-
-    async deleteAnnotationPrivacyLevel(params: {
-        annotation: string
-    }): Promise<void> {
-        await this.operation('deleteAnnotationPrivacyLevel', {
-            annotation: params.annotation,
-        })
-    }
-
-    async createOrUpdateAnnotationPrivacyLevel(params: {
-        annotation: string
-        privacyLevel: AnnotationPrivacyLevels
-        updatedWhen?: Date
-    }): Promise<void> {
-        const existing = await this.findAnnotationPrivacyLevel(params)
-
-        if (!existing) {
-            return this.createAnnotationPrivacyLevel({
-                ...params,
-                createdWhen: params.updatedWhen,
-            })
-        }
-
-        await this.operation('updateAnnotationPrivacyLevel', {
-            annotation: params.annotation,
-            privacyLevel: params.privacyLevel,
-            updatedWhen: params.updatedWhen ?? new Date(),
-        })
-    }
 
     async getAnnotations(urls: string[]): Promise<Annotation[]> {
         return this.operation('findAnnotationsByUrls', { urls })
@@ -290,10 +203,12 @@ export default class AnnotationStorage extends StorageModule {
     async listAnnotationsByPageUrl({
         pageUrl,
         withTags,
+        withLists,
         withBookmarks,
     }: {
         pageUrl: string
         withTags?: boolean
+        withLists?: boolean
         withBookmarks?: boolean
     }) {
         pageUrl = normalizeUrl(pageUrl)
@@ -307,6 +222,7 @@ export default class AnnotationStorage extends StorageModule {
         const annotationUrls = annotations.map((annotation) => annotation.url)
         let annotationsBookmarkMap = new Map<string, boolean>()
         let annotationsTagMap = new Map<string, string[]>()
+        let annotationsListMap = new Map<string, number[]>()
 
         if (withBookmarks !== false) {
             annotationsBookmarkMap = new Map(
@@ -334,13 +250,27 @@ export default class AnnotationStorage extends StorageModule {
             }
         }
 
-        if (annotationsTagMap.size > 0 || annotationsBookmarkMap.size > 0) {
-            annotations.forEach((annotation) => {
-                annotation.tags = annotationsTagMap.get(annotation.url) ?? []
-                annotation.isBookmarked =
-                    annotationsBookmarkMap.get(annotation.url) ?? false
-            })
+        if (withLists !== false) {
+            const listEntries: AnnotListEntry[] = await this.operation(
+                'listAnnotationListsForAnnotations',
+                {
+                    annotationUrls,
+                },
+            )
+
+            annotationsListMap = new Map()
+            for (const entry of listEntries) {
+                const prev = annotationsListMap.get(entry.url) ?? []
+                annotationsListMap.set(entry.url, [...prev, entry.listId])
+            }
         }
+
+        annotations.forEach((annotation) => {
+            annotation.tags = annotationsTagMap.get(annotation.url) ?? []
+            annotation.isBookmarked =
+                annotationsBookmarkMap.get(annotation.url) ?? false
+            annotation.lists = annotationsListMap.get(annotation.url) ?? []
+        })
 
         return annotations
     }
@@ -378,6 +308,13 @@ export default class AnnotationStorage extends StorageModule {
         })
 
         return [object.listId, object.url]
+    }
+
+    async ensureAnnotInList({ listId, url }: AnnotListEntry) {
+        const existing = await this.operation('findListEntry', { listId, url })
+        if (!existing) {
+            await this.insertAnnotToList({ listId, url })
+        }
     }
 
     async removeAnnotFromList({ listId, url }: AnnotListEntry) {
@@ -452,7 +389,7 @@ export default class AnnotationStorage extends StorageModule {
         comment,
         selector,
         createdWhen = new Date(),
-    }: Omit<Annotation, 'tags'>) {
+    }: Omit<Annotation, 'tags' | 'lists'>) {
         if (!body?.length && !comment?.length) {
             throw new Error(
                 'Failed create annotation attempt - no highlight or comment supplied',
@@ -484,7 +421,6 @@ export default class AnnotationStorage extends StorageModule {
     }
 
     async deleteAnnotation(url: string) {
-        await this.deleteAnnotationPrivacyLevel({ annotation: url })
         return this.operation('deleteAnnotation', { url })
     }
 
@@ -542,5 +478,36 @@ export default class AnnotationStorage extends StorageModule {
 
     findListEntriesByUrl({ url }: { url: string }): Promise<AnnotListEntry[]> {
         return this.operation('findListEntriesByUrl', { url })
+    }
+
+    async findListEntriesByList(args: {
+        listId: number
+    }): Promise<AnnotListEntry[]> {
+        const listEntries: AnnotListEntry[] = await this.operation(
+            'findListEntriesByList',
+            { listId: args.listId },
+        )
+        return listEntries
+    }
+
+    async findListEntriesByUrls({
+        annotationUrls,
+    }: {
+        annotationUrls: string[]
+    }): Promise<{ [annotationUrl: string]: AnnotListEntry[] }> {
+        const listEntries: AnnotListEntry[] = await this.operation(
+            'findListEntriesByUrls',
+            { urls: annotationUrls },
+        )
+        const listEntriesByAnnot: {
+            [annotationUrl: string]: AnnotListEntry[]
+        } = {}
+
+        for (const entry of listEntries) {
+            const prev = listEntriesByAnnot[entry.url] ?? []
+            listEntriesByAnnot[entry.url] = [...prev, entry]
+        }
+
+        return listEntriesByAnnot
     }
 }

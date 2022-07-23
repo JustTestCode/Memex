@@ -1,14 +1,11 @@
 import ImportContainer from './imports'
-import SettingsContainer from './containers/settings'
+// import SettingsContainer from './containers/settings'
 import BackupSettingsContainer from '../backup-restore/ui/backup-pane'
-import Privacy from './privacy'
 import Statistics from './statistics'
 import Settings from './settings'
-import UserScreen from '../authentication/components/UserScreen'
+import UserScreen from 'src/authentication/components/UserScreen'
 import React from 'react'
-import SyncDevicesPaneContainer from '../sync/components/device-list/SyncDevicesPane'
 import DashboardResultsContainer from 'src/overview/components/DashboardResultsContainer'
-import BetaFeaturesScreen from 'src/features/ui/components/BetaFeaturesScreen'
 
 export default [
     {
@@ -18,54 +15,48 @@ export default [
         hideFromSidebar: true,
     },
     {
-        name: 'Home',
+        name: 'Back to Dashboard',
         pathname: '/overview',
         component: DashboardResultsContainer,
-        icon: 'home',
+        icon: 'home.svg',
         useOwnLayout: true,
     },
     {
         name: 'Settings',
         pathname: '/settings',
         component: Settings,
-        icon: 'settings',
+        icon: 'settings.svg',
     },
     {
         name: 'Import & Integrations',
         pathname: '/import',
         component: ImportContainer,
-        icon: 'import',
+        icon: 'integrate.svg',
     },
     {
-        name: 'Backup & Restore',
+        name: 'Backup',
         pathname: '/backup',
         component: BackupSettingsContainer,
-        icon: 'backup',
+        icon: 'import.svg',
     },
     {
-        name: 'Sync',
-        pathname: '/sync',
-        component: SyncDevicesPaneContainer,
-        icon: 'sync',
+        name: 'My Account',
+        pathname: '/account',
+        component: UserScreen,
+        icon: 'personFine.svg',
     },
-    {
-        name: 'Beta Features',
-        pathname: '/features',
-        icon: 'settings',
-        component: BetaFeaturesScreen,
-    },
-    {
-        name: 'Blocklist',
-        pathname: '/blocklist',
-        component: SettingsContainer,
-        icon: 'block',
-    },
-    {
-        name: 'Privacy',
-        pathname: '/privacy',
-        component: Privacy,
-        icon: 'privacy',
-    },
+    // {
+    //     name: 'Blocklist',
+    //     pathname: '/blocklist',
+    //     component: SettingsContainer,
+    //     icon: 'block.svg',
+    // },
+    // {
+    //     name: 'Privacy',
+    //     pathname: '/privacy',
+    //     component: Privacy,
+    //     icon: 'shield.svg',
+    // },
     // {
     //     name: 'Memex Team',
     //     pathname: 'https://worldbrain.io/team',
@@ -73,28 +64,34 @@ export default [
     //     isExternal: true,
     // },
     {
-        name: 'Help',
+        name: 'Forum',
         pathname: 'https://worldbrain.io/help',
-        icon: 'help',
+        icon: 'help.svg',
         isExternal: true,
     },
     {
         name: 'Tutorial',
-        pathname: 'https://worldbrain.io/tutorials',
+        pathname: 'https://tutorials.memex.garden',
         isExternal: true,
-        icon: 'info',
+        icon: 'info.svg',
     },
+    // {
+    //     name: 'Get Early Bird Discount',
+    //     pathname: 'https://worldbrain.io/announcements/pioneer-plan',
+    //     isExternal: true,
+    //     icon: 'money.svg',
+    // },
     {
         name: 'User Account',
         pathname: '/account',
-        icon: 'settings',
+        icon: 'settings.svg',
         component: UserScreen,
         hideFromSidebar: true,
     },
     {
         name: 'User Account',
         pathname: '/account-subscriptions',
-        icon: 'settings',
+        icon: 'settings.svg',
         component: (props) => (
             <UserScreen {...props} initiallyShowSubscriptionModal refreshUser />
         ),

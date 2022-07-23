@@ -1,4 +1,8 @@
-import type { AuthenticatedUser } from '@worldbrain/memex-common/lib/authentication/types'
+import type {
+    AuthenticatedUser,
+    RegistrationResult,
+    LoginResult,
+} from '@worldbrain/memex-common/lib/authentication/types'
 import type {
     UserFeature,
     UserPlan,
@@ -14,6 +18,8 @@ export interface AuthRemoteFunctionsInterface {
     getCurrentUser(): Promise<AuthenticatedUser | null>
     signOut(): void
     refreshUserInfo(): Promise<void>
+    sendPasswordResetEmailProcess: (email) => Promise<void>
+    changeEmailProcess: (email) => Promise<void>
 
     getUserProfile(): Promise<{ displayName?: string } | null>
     getUserByReference(reference: UserReference): Promise<User | null>
@@ -25,9 +31,14 @@ export interface AuthRemoteFunctionsInterface {
     getSubscriptionStatus(): Promise<SubscriptionStatus>
     getSubscriptionExpiry(): Promise<number | null>
     isAuthorizedForFeature(feature: UserFeature): Promise<boolean>
-    setBetaEnabled(enabled: boolean): Promise<void>
 
     hasSubscribedBefore(): Promise<boolean>
+    registerWithEmailPassword(
+        options: EmailPasswordCredentials,
+    ): Promise<{ result: RegistrationResult }>
+    loginWithEmailPassword(
+        options: EmailPasswordCredentials,
+    ): Promise<{ result: LoginResult }>
 }
 
 export interface AuthRemoteEvents {
@@ -57,3 +68,14 @@ export type MemexUser = {
 export interface AuthSettings {
     beta?: boolean
 }
+
+export interface EmailPasswordCredentials {
+    email: string
+    password: string
+    displayName: string
+}
+export interface AuthRequest {
+    reason?: AuthRequestReason
+    header?: { title: string; subtitle?: string }
+}
+export type AuthRequestReason = 'login-requested' | 'registration-requested'

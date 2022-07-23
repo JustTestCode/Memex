@@ -23,7 +23,7 @@ const defaultState = {
     success: defaultStats, // Success counts for completed import items
     totals: defaultStats, // Static state to use to derive remaining counts from
     importStatus: STATUS.LOADING,
-    loadingMsg: 'Calculating size of history & bookmarks',
+    loadingMsg: 'Calculating size of bookmarks',
     downloadDataFilter: FILTERS.FAIL,
     concurrency: DEF_CONCURRENCY,
     isAdvEnabled: false,
@@ -34,7 +34,6 @@ const defaultState = {
     },
     showDownloadDetails: false,
     blobUrl: null,
-    bookmarkImports: false,
     indexTitle: false,
 }
 
@@ -187,10 +186,6 @@ export default createReducer(
         [actions.setBlobUrl]: (state, blobUrl) => ({
             ...state,
             blobUrl,
-        }),
-        [actions.toggleBookmarkImports]: (state) => ({
-            ...state,
-            bookmarkImports: !state.bookmarkImports,
         }),
         [actions.toggleIndexTitle]: (state) => ({
             ...state,

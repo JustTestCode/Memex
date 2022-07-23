@@ -5,10 +5,12 @@ import { normalizeUrl } from '@worldbrain/memex-url-utils'
 import * as DATA from './storage.test.data'
 import { setupBackgroundIntegrationTest } from 'src/tests/background-integration-tests'
 import { BackgroundIntegrationTestSetup } from 'src/tests/integration-tests'
+import { AnnotationPrivacyLevels } from '@worldbrain/memex-common/lib/annotations/types'
 
 async function insertTestData({
     storageManager,
     backgroundModules: {
+        contentSharing: { storage: contentSharingStorage },
         directLinking: { annotationStorage },
         customLists,
     },
@@ -36,9 +38,9 @@ async function insertTestData({
             url: annot.url,
         } as any)
 
-        await annotationStorage.createAnnotationPrivacyLevel({
+        await contentSharingStorage.setAnnotationPrivacyLevel({
             annotation: annot.url,
-            privacyLevel: 100,
+            privacyLevel: AnnotationPrivacyLevels.PROTECTED,
         })
     }
 
@@ -52,9 +54,16 @@ async function insertTestData({
     const coll1Id = await customLists.createCustomList({
         name: DATA.coll1,
     })
+    const coll2Id = await customLists.createCustomList({
+        name: DATA.coll2,
+    })
     await customLists.createCustomList({ name: DATA.coll2 })
-    const res = await annotationStorage.insertAnnotToList({
+    await annotationStorage.insertAnnotToList({
         listId: coll1Id,
+        url: DATA.hybrid.url,
+    })
+    await annotationStorage.insertAnnotToList({
+        listId: coll2Id,
         url: DATA.hybrid.url,
     })
 
@@ -71,6 +80,8 @@ async function setupTest() {
     return {
         annotationStorage:
             setup.backgroundModules.directLinking.annotationStorage,
+        contentSharingStorage: setup.backgroundModules.contentSharing.storage,
+        backgroundModules: setup.backgroundModules,
     }
 }
 
@@ -92,18 +103,28 @@ describe('Annotations storage', () => {
             assertTag(tags[0], DATA.tag1)
         })
 
-        test('fetch privacy level for an annotation', async () => {
+        test('fetch list entries for an annotation', async () => {
             const { annotationStorage } = await setupTest()
+
+            const url = DATA.hybrid.url
+            const lists = await annotationStorage.findListEntriesByUrl({ url })
+            expect(lists).toBeDefined()
+            expect(lists).not.toBeNull()
+            expect(lists.length).toBe(2)
+        })
+
+        test('fetch privacy level for an annotation', async () => {
+            const { contentSharingStorage } = await setupTest()
 
             const url = DATA.annotation.url
             expect(
-                await annotationStorage.findAnnotationPrivacyLevel({
+                await contentSharingStorage.findAnnotationPrivacyLevel({
                     annotation: url,
                 }),
             ).toEqual(
                 expect.objectContaining({
                     annotation: url,
-                    privacyLevel: 100,
+                    privacyLevel: AnnotationPrivacyLevels.PROTECTED,
                     createdWhen: expect.any(Date),
                 }),
             )
@@ -169,36 +190,83 @@ describe('Annotations storage', () => {
             })
 
             test('update annotation privacy level', async () => {
-                const { annotationStorage } = await setupTest()
+                const { contentSharingStorage } = await setupTest()
 
                 const url = DATA.annotation.url
-                const origPrivacyLevel = await annotationStorage.findAnnotationPrivacyLevel(
+                const origPrivacyLevel = await contentSharingStorage.findAnnotationPrivacyLevel(
                     { annotation: url },
                 )
                 expect(origPrivacyLevel).toEqual(
                     expect.objectContaining({
                         annotation: url,
-                        privacyLevel: 100,
+                        privacyLevel: AnnotationPrivacyLevels.PROTECTED,
                         createdWhen: expect.any(Date),
                     }),
                 )
-                const updatedWhen = new Date()
-                await annotationStorage.createOrUpdateAnnotationPrivacyLevel({
+
+                await contentSharingStorage.deleteAnnotationPrivacyLevel({
                     annotation: url,
-                    privacyLevel: 0,
+                })
+
+                expect(
+                    await contentSharingStorage.findAnnotationPrivacyLevel({
+                        annotation: url,
+                    }),
+                ).toEqual(null)
+
+                const updatedWhen = new Date()
+
+                await contentSharingStorage.setAnnotationPrivacyLevel({
+                    annotation: url,
+                    privacyLevel: AnnotationPrivacyLevels.PRIVATE,
                     updatedWhen,
                 })
 
                 expect(
-                    await annotationStorage.findAnnotationPrivacyLevel({
+                    await contentSharingStorage.findAnnotationPrivacyLevel({
                         annotation: url,
                     }),
                 ).toEqual(
                     expect.objectContaining({
                         annotation: url,
-                        privacyLevel: 0,
-                        createdWhen: origPrivacyLevel.createdWhen,
-                        updatedWhen,
+                        privacyLevel: AnnotationPrivacyLevels.PRIVATE,
+                        createdWhen: updatedWhen,
+                    }),
+                )
+
+                await contentSharingStorage.setAnnotationPrivacyLevel({
+                    annotation: url,
+                    privacyLevel: AnnotationPrivacyLevels.SHARED,
+                    updatedWhen,
+                })
+
+                expect(
+                    await contentSharingStorage.findAnnotationPrivacyLevel({
+                        annotation: url,
+                    }),
+                ).toEqual(
+                    expect.objectContaining({
+                        annotation: url,
+                        privacyLevel: AnnotationPrivacyLevels.SHARED,
+                        createdWhen: updatedWhen,
+                    }),
+                )
+
+                await contentSharingStorage.setAnnotationPrivacyLevel({
+                    annotation: url,
+                    privacyLevel: AnnotationPrivacyLevels.SHARED_PROTECTED,
+                    updatedWhen,
+                })
+
+                expect(
+                    await contentSharingStorage.findAnnotationPrivacyLevel({
+                        annotation: url,
+                    }),
+                ).toEqual(
+                    expect.objectContaining({
+                        annotation: url,
+                        privacyLevel: AnnotationPrivacyLevels.SHARED_PROTECTED,
+                        createdWhen: updatedWhen,
                     }),
                 )
             })
@@ -224,24 +292,30 @@ describe('Annotations storage', () => {
             })
 
             test('delete annotation should result in delete of any privacy level', async () => {
-                const { annotationStorage } = await setupTest()
+                const {
+                    backgroundModules,
+                    contentSharingStorage,
+                } = await setupTest()
 
                 const url = DATA.directLink.url
                 expect(
-                    await annotationStorage.findAnnotationPrivacyLevel({
+                    await contentSharingStorage.findAnnotationPrivacyLevel({
                         annotation: url,
                     }),
                 ).toEqual(
                     expect.objectContaining({
                         annotation: url,
-                        privacyLevel: 100,
+                        privacyLevel: AnnotationPrivacyLevels.PROTECTED,
                         createdWhen: expect.any(Date),
                     }),
                 )
 
-                await annotationStorage.deleteAnnotation(url)
+                await backgroundModules.directLinking.deleteAnnotation(
+                    undefined,
+                    url,
+                )
                 expect(
-                    await annotationStorage.findAnnotationPrivacyLevel({
+                    await contentSharingStorage.findAnnotationPrivacyLevel({
                         annotation: url,
                     }),
                 ).toEqual(null)
@@ -323,7 +397,7 @@ describe('Annotations storage', () => {
                     url,
                 })
 
-                expect(before.length).toBe(1)
+                expect(before.length).toBe(2)
                 await annotationStorage.deleteListEntriesByUrl({ url })
                 const after = await annotationStorage.findListEntriesByUrl({
                     url,
@@ -332,27 +406,27 @@ describe('Annotations storage', () => {
             })
 
             test('delete annotation privacy level', async () => {
-                const { annotationStorage } = await setupTest()
+                const { contentSharingStorage } = await setupTest()
 
                 const url = DATA.directLink.url
                 expect(
-                    await annotationStorage.findAnnotationPrivacyLevel({
+                    await contentSharingStorage.findAnnotationPrivacyLevel({
                         annotation: url,
                     }),
                 ).toEqual(
                     expect.objectContaining({
                         annotation: url,
-                        privacyLevel: 100,
+                        privacyLevel: AnnotationPrivacyLevels.PROTECTED,
                         createdWhen: expect.any(Date),
                     }),
                 )
 
-                await annotationStorage.deleteAnnotationPrivacyLevel({
+                await contentSharingStorage.deleteAnnotationPrivacyLevel({
                     annotation: url,
                 })
 
                 expect(
-                    await annotationStorage.findAnnotationPrivacyLevel({
+                    await contentSharingStorage.findAnnotationPrivacyLevel({
                         annotation: url,
                     }),
                 ).toEqual(null)

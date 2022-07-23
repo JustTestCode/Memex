@@ -1,5 +1,11 @@
-import { PickerUpdateHandler } from 'src/common-ui/GenericPicker/types'
-import { AnnotationPrivacyLevels } from 'src/annotations/types'
+import type {
+    PickerUpdateHandler,
+    PickerUpdateHandlerArgs,
+} from 'src/common-ui/GenericPicker/types'
+import type { SpacePickerDependencies } from 'src/custom-lists/ui/CollectionPicker/logic'
+import type { Props as ActivityIndicatorProps } from 'src/activity-indicator/ui'
+import type { RemoteCollectionsInterface } from 'src/custom-lists/background/types'
+import type { ContentSharingInterface } from 'src/content-sharing/background/types'
 
 export interface RibbonSubcomponentProps {
     highlights: RibbonHighlightsProps
@@ -11,6 +17,9 @@ export interface RibbonSubcomponentProps {
     lists: RibbonListsProps
     search: RibbonSearchProps
     pausing: RibbonPausingProps
+    activityIndicator: ActivityIndicatorProps
+    spacesBG: RemoteCollectionsInterface
+    contentSharingBG: ContentSharingInterface
 }
 
 export interface RibbonHighlightsProps {
@@ -32,13 +41,15 @@ export interface RibbonSidebarProps {
 
 export interface RibbonCommentBoxProps {
     tags: string[]
+    lists: number[]
     commentText: string
     showCommentBox: boolean
     isCommentSaved: boolean
-    saveComment: (privacyLevel: AnnotationPrivacyLevels) => Promise<void>
+    saveComment: (shouldShare: boolean, isProtected?: boolean) => Promise<void>
     cancelComment: () => void
     setShowCommentBox: (value: boolean) => void
     updateCommentBoxTags: (tags: string[]) => void
+    updateCommentBoxLists: (lists: number[]) => void
     changeComment: (text: string) => void
 }
 
@@ -51,6 +62,7 @@ export interface RibbonTaggingProps {
     tags: string[]
     pageHasTags: boolean
     showTagsPicker: boolean
+    shouldShowTagsUIs: boolean
     updateTags: PickerUpdateHandler
     tagAllTabs: (value: string) => Promise<void>
     setShowTagsPicker: (value: boolean) => void
@@ -65,15 +77,17 @@ export interface ListEntryArgs {
 }
 
 export interface RibbonListsProps {
-    pageBelongsToList: boolean
+    pageListIds: number[]
     showListsPicker: boolean
-    updateLists: PickerUpdateHandler
-    listAllTabs: (value: string) => Promise<void>
+    updateLists: (
+        args: PickerUpdateHandlerArgs<number> & { skipPageIndexing?: boolean },
+    ) => Promise<void>
+    listAllTabs: (value: number) => Promise<void>
     setShowListsPicker: (value: boolean) => void
-    fetchInitialListSelections: () => Promise<string[]>
-    loadDefaultSuggestions: () => Promise<string[]>
-    queryEntries: (query: string) => Promise<string[]>
-    loadRemoteListNames: () => Promise<string[]>
+    fetchInitialListSelections: () => Promise<number[]>
+    selectEntry: SpacePickerDependencies['selectEntry']
+    unselectEntry: SpacePickerDependencies['unselectEntry']
+    createNewEntry: SpacePickerDependencies['createNewEntry']
 }
 
 export interface RibbonSearchProps {

@@ -65,7 +65,7 @@
 .tooltipleft {
     &.tooltipBubble {
         right: 30px;
-        top: -30px;
+        top: -15px;
         overflow: visible;
     }
 }
@@ -84,6 +84,20 @@
     &.tooltipContent {
         width: 180px;
         padding: 5px 0;
+    }
+}
+
+.leftTutorial {
+    &.tooltipContent {
+        width: 420px;
+        height: 50vh;
+        overflow-y: scroll;
+        overflow-x: hidden;
+    }
+
+    &.tooltipBubble {
+        right: 30px;
+        top: -20px;
     }
 }
 

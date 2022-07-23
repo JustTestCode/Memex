@@ -2,7 +2,7 @@ import React, { PureComponent } from 'react'
 import styled from 'styled-components'
 import Waypoint from 'react-waypoint'
 
-import {
+import type {
     RootState,
     PageResult as PageResultData,
     PageData,
@@ -15,6 +15,7 @@ import {
     PagePickerAugdProps,
     NoResultsType,
 } from './types'
+import type { RootState as ListSidebarState } from '../lists-sidebar/types'
 import TopBar from './components/result-top-bar'
 import SearchTypeSwitch, {
     Props as SearchTypeSwitchProps,
@@ -36,7 +37,7 @@ import {
 } from 'src/annotations/components/AnnotationCreate'
 import { sizeConstants } from '../constants'
 import AnnotationEditable from 'src/annotations/components/HoverControlledAnnotationEditable'
-import { LoadingIndicator } from 'src/common-ui/components'
+import LoadingIndicator from '@worldbrain/memex-common/lib/common-ui/components/loading-indicator'
 import { HoverBox } from 'src/common-ui/components/design-library/HoverBox'
 import { PageNotesCopyPaster } from 'src/copy-paster'
 import TagPicker from 'src/tags/ui/TagPicker'
@@ -52,8 +53,11 @@ import ListDetails, {
 } from './components/list-details'
 import Icon from '@worldbrain/memex-common/lib/common-ui/components/icon'
 import ListShareMenu from 'src/overview/sharing/ListShareMenu'
-import { AnnotationSharingInfo } from 'src/content-sharing/ui/types'
 import PioneerPlanBanner from 'src/common-ui/components/pioneer-plan-banner'
+import CloudUpgradeBanner from 'src/personal-cloud/ui/components/cloud-upgrade-banner'
+import CollectionPicker from 'src/custom-lists/ui/CollectionPicker'
+import { AnnotationSharingStates } from 'src/content-sharing/background/types'
+import type { ListDetailsGetter } from 'src/annotations/types'
 
 const timestampToString = (timestamp: number) =>
     timestamp === -1 ? undefined : formatDayGroupTime(timestamp)
@@ -63,10 +67,15 @@ export type Props = RootState &
         SearchTypeSwitchProps,
         'onNotesSearchSwitch' | 'onPagesSearchSwitch'
     > & {
+        searchFilters?: any
+        searchResults?: any
+        searchQuery?: string
+        listData: ListSidebarState['listData']
         goToImportRoute: () => void
         toggleListShareMenu: () => void
         selectedListId?: number
         areAllNotesShown: boolean
+        toggleSortMenuShown: () => void
         pageInteractionProps: PageInteractionAugdProps
         noteInteractionProps: NoteInteractionAugdProps
         searchCopyPasterProps: SearchCopyPasterProps
@@ -76,7 +85,9 @@ export type Props = RootState &
         noResultsType: NoResultsType
         onDismissMobileAd: React.MouseEventHandler
         onDismissOnboardingMsg: React.MouseEventHandler
+        showCloudOnboardingModal: React.MouseEventHandler
         onDismissSubscriptionBanner: React.MouseEventHandler
+        isDisplayed: boolean
         filterSearchByTag: (tag: string) => void
         openListShareModal: () => void
         newNoteInteractionProps: {
@@ -93,13 +104,13 @@ export type Props = RootState &
             day: number,
             pageId: string,
         ): (sorter: AnnotationsSorter) => void
+        getListDetailsById: ListDetailsGetter
         paginateSearch(): Promise<void>
         onPageLinkCopy(link: string): Promise<void>
         onNoteLinkCopy(link: string): Promise<void>
         onListLinkCopy(link: string): Promise<void>
-        updateAllResultNotesShareInfo: (
-            info: Partial<AnnotationSharingInfo>,
-        ) => void
+        // updateAllResultNotesShareInfo: (info: NoteShareInfo) => void
+        updateAllResultNotesShareInfo: (state: AnnotationSharingStates) => void
     }
 
 export default class SearchResultsContainer extends PureComponent<Props> {
@@ -109,9 +120,12 @@ export default class SearchResultsContainer extends PureComponent<Props> {
         </Loader>
     )
 
-    private renderNoteResult = (day: number, pageId: string) => (
-        noteId: string,
-    ) => {
+    private renderNoteResult = (
+        day: number,
+        pageId: string,
+        zIndex: number,
+    ) => (noteId: string) => {
+        const pageData = this.props.pageData.byId[pageId]
         const noteData = this.props.noteData.byId[noteId]
 
         const interactionProps = bindFunctionalProps<
@@ -121,27 +135,47 @@ export default class SearchResultsContainer extends PureComponent<Props> {
 
         const dummyEvent = {} as any
 
+        const listsToDisplay = noteData.isShared
+            ? [
+                  ...new Set([
+                      ...pageData.lists.filter(
+                          (listId) =>
+                              this.props.listData[listId]?.remoteId != null,
+                      ),
+                      ...noteData.lists,
+                  ]),
+              ]
+            : noteData.lists
+
         return (
             <AnnotationEditable
+                zIndex={zIndex}
                 key={noteId}
                 url={noteId}
                 tags={noteData.tags}
+                lists={listsToDisplay}
                 body={noteData.highlight}
                 comment={noteData.comment}
+                isShared={noteData.isShared}
+                getListDetailsById={this.props.getListDetailsById}
+                isBulkShareProtected={noteData.isBulkShareProtected}
                 createdWhen={new Date(noteData.displayTime)}
                 onTagClick={this.props.filterSearchByTag}
                 onGoToAnnotation={interactionProps.onGoToHighlightClick}
+                contextLocation={'dashboard'}
                 lastEdited={
                     noteData.isEdited
                         ? new Date(noteData.displayTime)
                         : undefined
                 }
                 mode={noteData.isEditing ? 'edit' : 'default'}
-                sharingInfo={this.props.noteSharingInfo[noteId]}
-                sharingAccess={this.props.sharingAccess}
                 renderCopyPasterForAnnotation={() =>
                     noteData.isCopyPasterShown && (
-                        <HoverBox right="0" withRelativeContainer>
+                        <HoverBox
+                            padding={'0px'}
+                            right="0"
+                            withRelativeContainer
+                        >
                             <PageNotesCopyPaster
                                 annotationUrls={[noteId]}
                                 normalizedPageUrls={[pageId]}
@@ -152,25 +186,74 @@ export default class SearchResultsContainer extends PureComponent<Props> {
                         </HoverBox>
                     )
                 }
-                renderTagsPickerForAnnotation={() =>
-                    noteData.isTagPickerShown && (
-                        <HoverBox right="0" withRelativeContainer>
-                            <TagPicker
-                                initialSelectedEntries={() => noteData.tags}
+                renderTagsPickerForAnnotation={
+                    this.props.shouldShowTagsUIs
+                        ? () =>
+                              noteData.isTagPickerShown && (
+                                  <HoverBox
+                                      left="0"
+                                      top="-40px"
+                                      withRelativeContainer
+                                  >
+                                      <TagPicker
+                                          initialSelectedEntries={() =>
+                                              noteData.tags
+                                          }
+                                          onClickOutside={
+                                              interactionProps.onTagPickerBtnClick
+                                          }
+                                          onUpdateEntrySelection={
+                                              interactionProps.updateTags
+                                          }
+                                      />
+                                  </HoverBox>
+                              )
+                        : undefined
+                }
+                renderListsPickerForAnnotation={() =>
+                    noteData.isListPickerShown && (
+                        <HoverBox withRelativeContainer>
+                            <CollectionPicker
+                                initialSelectedEntries={() => listsToDisplay}
                                 onClickOutside={
-                                    interactionProps.onTagPickerBtnClick
+                                    interactionProps.onListPickerBtnClick
                                 }
-                                onUpdateEntrySelection={
-                                    interactionProps.updateTags
+                                selectEntry={(listId) =>
+                                    interactionProps.updateLists({
+                                        added: listId,
+                                        deleted: null,
+                                        selected: [],
+                                        options: {
+                                            showExternalConfirmations: true,
+                                        },
+                                    })
                                 }
+                                unselectEntry={(listId) =>
+                                    interactionProps.updateLists({
+                                        added: null,
+                                        deleted: listId,
+                                        selected: [],
+                                        options: {
+                                            showExternalConfirmations: true,
+                                        },
+                                    })
+                                }
+                                createNewEntry={interactionProps.createNewList}
                             />
                         </HoverBox>
                     )
                 }
                 renderShareMenuForAnnotation={() =>
                     noteData.shareMenuShowStatus !== 'hide' && (
-                        <HoverBox width="350px" right="0" withRelativeContainer>
+                        <HoverBox
+                            padding={'0px'}
+                            width="350px"
+                            right="0"
+                            withRelativeContainer
+                        >
                             <SingleNoteShareMenu
+                                listData={this.props.listData}
+                                isShared={noteData.isShared}
                                 shareImmediately={
                                     noteData.shareMenuShowStatus ===
                                     'show-n-share'
@@ -180,30 +263,26 @@ export default class SearchResultsContainer extends PureComponent<Props> {
                                 closeShareMenu={
                                     interactionProps.onShareBtnClick
                                 }
-                                postShareHook={({
-                                    privacyLevel,
-                                    shareStateChanged,
-                                }) =>
-                                    interactionProps.updateShareInfo({
-                                        privacyLevel,
-                                        taskState: 'success',
-                                        status: shareStateChanged
-                                            ? 'shared'
-                                            : undefined,
-                                    })
-                                }
-                                postUnshareHook={({
-                                    privacyLevel,
-                                    shareStateChanged,
-                                }) =>
-                                    interactionProps.updateShareInfo({
-                                        privacyLevel,
-                                        taskState: 'success',
-                                        status: shareStateChanged
-                                            ? 'unshared'
-                                            : undefined,
-                                    })
-                                }
+                                postShareHook={interactionProps.updateShareInfo}
+                                spacePickerProps={{
+                                    initialSelectedEntries: () =>
+                                        listsToDisplay,
+                                    selectEntry: (listId, options) =>
+                                        interactionProps.updateLists({
+                                            added: listId,
+                                            deleted: null,
+                                            selected: [],
+                                            options,
+                                        }),
+                                    unselectEntry: (listId) =>
+                                        interactionProps.updateLists({
+                                            added: null,
+                                            deleted: listId,
+                                            selected: [],
+                                        }),
+                                    createNewEntry:
+                                        interactionProps.createNewList,
+                                }}
                             />
                         </HoverBox>
                     )
@@ -216,17 +295,15 @@ export default class SearchResultsContainer extends PureComponent<Props> {
                         } as any),
                     onEditCancel: () =>
                         interactionProps.onEditCancel(dummyEvent),
-                    onEditConfirm: () =>
-                        interactionProps.onEditConfirm(dummyEvent),
+                    onEditConfirm: interactionProps.onEditConfirm,
                 }}
                 annotationFooterDependencies={{
                     onDeleteCancel: () => undefined,
                     onDeleteConfirm: () => undefined,
                     onTagIconClick: interactionProps.onTagPickerBtnClick,
+                    onListIconClick: interactionProps.onListPickerBtnClick,
                     onDeleteIconClick: interactionProps.onTrashBtnClick,
                     onCopyPasterBtnClick: interactionProps.onCopyPasterBtnClick,
-                    onEditCancel: interactionProps.onEditCancel,
-                    onEditConfirm: interactionProps.onEditConfirm,
                     onEditIconClick: interactionProps.onEditBtnClick,
                     onShareClick: interactionProps.onShareBtnClick,
                 }}
@@ -254,60 +331,86 @@ export default class SearchResultsContainer extends PureComponent<Props> {
         const boundAnnotCreateProps = bindFunctionalProps<
             typeof newNoteInteractionProps,
             AnnotationCreateEventProps
-        >(this.props.newNoteInteractionProps, day, normalizedUrl)
+        >(newNoteInteractionProps, day, normalizedUrl)
 
         return (
             <PageNotesBox bottom="10px" left="10px">
-                <NoteTopBarBox
-                    leftSide={
-                        <NotesTypeDropdownMenu
-                            notesTypeSelection={notesType}
-                            onNotesTypeSelection={this.props.onPageNotesTypeSelection(
-                                day,
-                                normalizedUrl,
-                            )}
-                        />
-                    }
-                    rightSide={
-                        <TopBarRightSideWrapper>
-                            <ButtonTooltip
-                                tooltipText="Share Page and Notes"
-                                position="bottom"
-                            >
-                                <ShareBtn onClick={onShareBtnClick}>
-                                    <IconImg
-                                        src={
-                                            isShared ? icons.shared : icons.link
-                                        }
-                                    />
-                                </ShareBtn>
-                            </ButtonTooltip>
-                            <SortingDropdownMenuBtn
-                                onMenuItemClick={({ sortingFn }) =>
-                                    this.props.onPageNotesSortSelection(
-                                        day,
-                                        normalizedUrl,
-                                    )(sortingFn)
-                                }
-                            />
-                        </TopBarRightSideWrapper>
-                    }
-                />
-                <Margin bottom="3px" />
                 <AnnotationCreate
-                    autoFocus={this.props.shouldFormsAutoFocus}
+                    autoFocus={false}
                     comment={newNoteForm.inputValue}
                     tags={newNoteForm.tags}
+                    lists={newNoteForm.lists}
+                    getListDetailsById={this.props.getListDetailsById}
                     {...boundAnnotCreateProps}
+                    contextLocation={'dashboard'}
                 />
-                {noteIds[notesType].map(
-                    this.renderNoteResult(day, normalizedUrl),
+                {noteIds[notesType].length > 0 && (
+                    <>
+                        <Margin top="3px" />
+                        <NoteTopBarBox
+                            leftSide={
+                                <TopBarRightSideWrapper>
+                                    <ButtonTooltip
+                                        tooltipText="Sort Annotations"
+                                        position="bottom"
+                                    >
+                                        <Icon
+                                            filePath={icons.sort}
+                                            onClick={() =>
+                                                this.props.toggleSortMenuShown()
+                                            }
+                                            height="18px"
+                                            width="20px"
+                                        />
+                                    </ButtonTooltip>
+                                    {this.renderSortingMenuDropDown(
+                                        normalizedUrl,
+                                        day,
+                                    )}
+                                </TopBarRightSideWrapper>
+                            }
+                        />
+                        <Separator />
+                    </>
                 )}
+                {noteIds[notesType].map((noteId, index) => {
+                    const zIndex = noteIds[notesType].length - index
+                    return this.renderNoteResult(
+                        day,
+                        normalizedUrl,
+                        zIndex,
+                    )(noteId)
+                })}
             </PageNotesBox>
         )
     }
 
-    private renderPageResult = (pageId: string, day: number) => {
+    private renderSortingMenuDropDown(normalizedUrl, day: number) {
+        if (!this.props.isSortMenuShown) {
+            return null
+        }
+
+        return (
+            <HoverBox
+                withRelativeContainer
+                left={'-30px'}
+                padding={'0px'}
+                top={'20px'}
+            >
+                <SortingDropdownMenuBtn
+                    onMenuItemClick={({ sortingFn }) =>
+                        this.props.onPageNotesSortSelection(
+                            day,
+                            normalizedUrl,
+                        )(sortingFn)
+                    }
+                    onClickOutSide={() => this.props.toggleSortMenuShown()}
+                />
+            </HoverBox>
+        )
+    }
+
+    private renderPageResult = (pageId: string, day: number, index: number) => {
         const page = {
             ...this.props.pageData.byId[pageId],
             ...this.props.results[day].pages.byId[pageId],
@@ -324,37 +427,33 @@ export default class SearchResultsContainer extends PureComponent<Props> {
         >(this.props.pagePickerProps, pageId)
 
         return (
-            <ResultBox bottom="10px" key={day.toString() + pageId}>
+            <ResultBox
+                zIndex={index}
+                bottom="10px"
+                key={day.toString() + pageId}
+            >
                 <PageResult
                     isSearchFilteredByList={this.props.selectedListId != null}
+                    filteredbyListID={this.props.selectedListId}
+                    getListDetailsById={this.props.getListDetailsById}
                     onTagClick={this.props.filterSearchByTag}
                     shareMenuProps={{
                         normalizedPageUrl: page.normalizedUrl,
                         closeShareMenu: interactionProps.onShareBtnClick,
                         copyLink: this.props.onPageLinkCopy,
-                        postShareHook: ({ privacyLevel, shareStateChanged }) =>
-                            interactionProps.updatePageNotesShareInfo({
-                                status: shareStateChanged
-                                    ? 'shared'
-                                    : undefined,
-                                taskState: 'success',
-                                privacyLevel,
-                            }),
-                        postUnshareHook: ({
-                            privacyLevel,
-                            shareStateChanged,
-                        }) =>
-                            interactionProps.updatePageNotesShareInfo({
-                                status: shareStateChanged
-                                    ? 'unshared'
-                                    : undefined,
-                                taskState: 'success',
-                                privacyLevel,
-                            }),
+                        postBulkShareHook: (shareInfo) =>
+                            interactionProps.updatePageNotesShareInfo(
+                                shareInfo,
+                            ),
                     }}
                     {...interactionProps}
                     {...pickerProps}
                     {...page}
+                    onTagPickerBtnClick={
+                        this.props.shouldShowTagsUIs
+                            ? interactionProps.onTagPickerBtnClick
+                            : undefined
+                    }
                 />
                 {this.renderPageNotes(page, day, interactionProps)}
             </ResultBox>
@@ -362,48 +461,167 @@ export default class SearchResultsContainer extends PureComponent<Props> {
     }
 
     private renderNoResults() {
-        if (this.props.noResultsType === 'onboarding-msg') {
+        if (
+            this.props.searchResults.allIds.length === 0 &&
+            (this.props.searchQuery.length > 0 ||
+                this.props.searchFilters.tagsIncluded.length > 0 ||
+                this.props.searchFilters.domainsIncluded.length > 0 ||
+                this.props.searchFilters.dateTo > 0 ||
+                this.props.searchFilters.dateFrom > 0)
+        ) {
             return (
-                <NoResults title="You don't have anything saved yet">
-                    <DismissibleResultsMessage
-                        onDismiss={this.props.onDismissOnboardingMsg}
-                    >
-                        <OnboardingMsg
-                            goToImportRoute={this.props.goToImportRoute}
+                <ResultsMessage>
+                    <SectionCircle>
+                        <Icon
+                            filePath={icons.searchIcon}
+                            heightAndWidth="24px"
+                            color="purple"
+                            hoverOff
                         />
-                    </DismissibleResultsMessage>
-                </NoResults>
+                    </SectionCircle>
+                    <NoResults title="Nothing found for this query" />
+                </ResultsMessage>
             )
         }
 
-        if (this.props.noResultsType === 'mobile-list') {
+        if (
+            this.props.searchResults.allIds.length === 0 &&
+            this.props.searchQuery.length === 0 &&
+            !this.props.searchFilters.isDateFilterActive &&
+            !this.props.searchFilters.isTagFilterActive &&
+            !this.props.searchFilters.isDomainFilterActive
+        ) {
+            if (this.props.noResultsType === 'mobile-list-ad') {
+                return (
+                    <ResultsMessage>
+                        <SectionCircle>
+                            <Icon
+                                filePath={icons.phone}
+                                heightAndWidth="24px"
+                                color="purple"
+                                hoverOff
+                            />
+                        </SectionCircle>
+                        <NoResults title="Save & annotate from your mobile devices">
+                            <DismissibleResultsMessage
+                                onDismiss={this.props.onDismissMobileAd}
+                            >
+                                <MobileAppAd />
+                            </DismissibleResultsMessage>
+                        </NoResults>
+                    </ResultsMessage>
+                )
+            }
+
+            if (this.props.searchType === 'notes') {
+                return (
+                    <ResultsMessage>
+                        <SectionCircle>
+                            <Icon
+                                filePath={icons.highlighterEmpty}
+                                heightAndWidth="24px"
+                                color="purple"
+                                hoverOff
+                            />
+                        </SectionCircle>
+                        <NoResults
+                            title={
+                                <span>
+                                    Make your first highlight or annotation
+                                </span>
+                            }
+                        />
+                    </ResultsMessage>
+                )
+            } else {
+                return (
+                    <ResultsMessage>
+                        <SectionCircle>
+                            <Icon
+                                filePath={icons.heartEmpty}
+                                heightAndWidth="24px"
+                                color="purple"
+                                hoverOff
+                            />
+                        </SectionCircle>
+                        <NoResults
+                            title={
+                                <span>
+                                    Save your first website or{' '}
+                                    <ImportInfo
+                                        onClick={() =>
+                                            (window.location.hash = '#/import')
+                                        }
+                                    >
+                                        import your bookmarks.
+                                    </ImportInfo>
+                                </span>
+                            }
+                        ></NoResults>
+                    </ResultsMessage>
+                )
+            }
+        }
+
+        if (
+            this.props.noResultsType === 'mobile-list' &&
+            this.props.searchQuery.length === 0
+        ) {
             return (
-                <NoResults title="You don't have anything saved from the mobile app yet" />
+                <ResultsMessage>
+                    <SectionCircle>
+                        <Icon
+                            filePath={icons.phone}
+                            heightAndWidth="24px"
+                            color="purple"
+                            hoverOff
+                        />
+                    </SectionCircle>
+                    <NoResults title="Save & annotate from your mobile devices"></NoResults>
+                </ResultsMessage>
             )
         }
 
         if (this.props.noResultsType === 'mobile-list-ad') {
             return (
-                <NoResults title="You don't have anything saved from the mobile app yet">
-                    <DismissibleResultsMessage
-                        onDismiss={this.props.onDismissMobileAd}
-                    >
-                        <MobileAppAd />
-                    </DismissibleResultsMessage>
-                </NoResults>
+                <ResultsMessage>
+                    <SectionCircle>
+                        <Icon
+                            filePath={icons.phone}
+                            heightAndWidth="24px"
+                            color="purple"
+                            hoverOff
+                        />
+                    </SectionCircle>
+                    <NoResults title="Save & annotate from your mobile devices">
+                        <DismissibleResultsMessage
+                            onDismiss={this.props.onDismissMobileAd}
+                        >
+                            <MobileAppAd />
+                        </DismissibleResultsMessage>
+                    </NoResults>
+                </ResultsMessage>
             )
         }
 
         if (this.props.noResultsType === 'stop-words') {
             return (
-                <NoResults title="No Results">
-                    Search terms are too common, or have been filtered out to
-                    increase performance.
-                </NoResults>
+                <ResultsMessage>
+                    <SectionCircle>
+                        <Icon
+                            filePath={icons.searchIcon}
+                            heightAndWidth="24px"
+                            color="purple"
+                            hoverOff
+                        />
+                    </SectionCircle>
+                    <NoResults title="No Results">
+                        Search terms are too common <br />
+                        or have been filtered out to increase performance.
+                    </NoResults>
+                </ResultsMessage>
             )
         }
-
-        return <NoResults title="No Results">¯\_(ツ)_/¯</NoResults>
     }
 
     private renderResultsByDay() {
@@ -416,11 +634,23 @@ export default class SearchResultsContainer extends PureComponent<Props> {
         }
 
         const days: JSX.Element[] = []
+        var groupIndex = 1500
 
         for (const { day, pages } of Object.values(this.props.results)) {
+            groupIndex = groupIndex - 1
             days.push(
-                <DayResultGroup key={day} when={timestampToString(day)}>
-                    {pages.allIds.map((id) => this.renderPageResult(id, day))}
+                <DayResultGroup
+                    zIndex={groupIndex}
+                    key={day}
+                    when={timestampToString(day)}
+                >
+                    {pages.allIds.map((id, index) =>
+                        this.renderPageResult(
+                            id,
+                            day,
+                            pages.allIds.length - index,
+                        ),
+                    )}
                 </DayResultGroup>,
             )
         }
@@ -449,22 +679,24 @@ export default class SearchResultsContainer extends PureComponent<Props> {
 
         return (
             <>
-                <ButtonTooltip tooltipText="Share Collection" position="bottom">
-                    <IconBox>
-                        <Icon
-                            icon="shareEmpty"
-                            height="16px"
-                            color="primary"
-                            onClick={this.props.toggleListShareMenu}
-                        />
-                    </IconBox>
+                <ButtonTooltip
+                    tooltipText="Bulk-change privacy of annotations in this Space"
+                    position="bottom"
+                >
+                    <Icon
+                        filePath={icons.multiEdit}
+                        height="16px"
+                        onClick={this.props.toggleListShareMenu}
+                    />
                 </ButtonTooltip>
                 {this.props.isListShareMenuShown && (
                     <HoverBox
-                        width="320px"
+                        width="340px"
                         top="20px"
-                        right="-150px"
+                        right="-90px"
                         withRelativeContainer
+                        position="absolute"
+                        padding={'0px'}
                     >
                         <ListShareMenu
                             openListShareModal={this.props.openListShareModal}
@@ -472,29 +704,10 @@ export default class SearchResultsContainer extends PureComponent<Props> {
                             closeShareMenu={this.props.toggleListShareMenu}
                             listId={this.props.selectedListId}
                             shareImmediately={false}
-                            postShareHook={({
-                                shareStateChanged,
-                                privacyLevel,
-                            }) =>
-                                this.props.updateAllResultNotesShareInfo({
-                                    status: shareStateChanged
-                                        ? 'shared'
-                                        : undefined,
-                                    taskState: 'success',
-                                    privacyLevel,
-                                })
-                            }
-                            postUnshareHook={({
-                                shareStateChanged,
-                                privacyLevel,
-                            }) =>
-                                this.props.updateAllResultNotesShareInfo({
-                                    status: shareStateChanged
-                                        ? 'unshared'
-                                        : undefined,
-                                    taskState: 'success',
-                                    privacyLevel,
-                                })
+                            postBulkShareHook={(shareState) =>
+                                this.props.updateAllResultNotesShareInfo(
+                                    shareState,
+                                )
                             }
                         />
                     </HoverBox>
@@ -506,24 +719,33 @@ export default class SearchResultsContainer extends PureComponent<Props> {
     render() {
         return (
             <ResultsContainer bottom="100px">
+                {this.props.isCloudUpgradeBannerShown && (
+                    <CloudUpgradeBanner
+                        onGetStartedClick={this.props.showCloudOnboardingModal}
+                        width="fill-available"
+                    />
+                )}
                 {this.props.isSubscriptionBannerShown && (
                     <PioneerPlanBanner
                         onHideClick={this.props.onDismissSubscriptionBanner}
-                        width='fill-available'
+                        width="fill-available"
                     />
                 )}
                 {this.props.selectedListId != null && (
                     <ListDetails {...this.props.listDetailsProps} />
                 )}
-                <PageTopBarBox bottom="5px">
+                <PageTopBarBox
+                    isDisplayed={this.props.isDisplayed}
+                    bottom="5px"
+                >
                     <TopBar
                         leftSide={<SearchTypeSwitch {...this.props} />}
                         rightSide={
                             <RightSideButton>
+                                {this.renderListShareBtn()}
                                 <SearchCopyPaster
                                     {...this.props.searchCopyPasterProps}
                                 />
-                                {this.renderListShareBtn()}
                                 <ExpandAllNotes
                                     isEnabled={this.props.areAllNotesShown}
                                     onClick={this.props.onShowAllNotesClick}
@@ -538,10 +760,25 @@ export default class SearchResultsContainer extends PureComponent<Props> {
     }
 }
 
-const PageTopBarBox = styled(Margin)`
-    width: 100%;
-    border-bottom: 1px solid #e0e0e0;
-    padding-bottom: 2px;
+const ResultsMessage = styled.div`
+    padding-top: 30px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+`
+
+const PageTopBarBox = styled(Margin)<{ isDisplayed: boolean }>`
+    width: 96%;
+    border-bottom: 1px solid ${(props) => props.theme.colors.lineGrey};
+    padding: 0px 15px;
+    height: 40px;
+    max-width: calc(${sizeConstants.searchResults.widthPx}px + 30px);
+    z-index: 2147483639;
+    margin-top: -6px;
+    position: sticky;
+    top: ${(props) => (props.isDisplayed === true ? '110px' : '60px')};
+    background: ${(props) => props.theme.colors.backgroundColor};
 `
 
 const IconBox = styled.div`
@@ -559,6 +796,10 @@ const IconBox = styled.div`
 const RightSideButton = styled.div`
     display: flex;
     align-items: center;
+    display: grid;
+    grid-auto-flow: column;
+    grid-gap: 10px;
+    align-items: center;
 `
 
 const NoteTopBarBox = styled(TopBar)`
@@ -566,10 +807,11 @@ const NoteTopBarBox = styled(TopBar)`
     display: flex;
 `
 
-const ResultBox = styled(Margin)`
+const ResultBox = styled(Margin)<{ zIndex: number }>`
     flex-direction: column;
     justify-content: space-between;
     width: 100%;
+    z-index: ${(props) => props.zIndex};
 `
 
 const PageNotesBox = styled(Margin)`
@@ -578,7 +820,14 @@ const PageNotesBox = styled(Margin)`
     width: fill-available;
     padding-left: 10px;
     padding-top: 5px;
-    border-left: 4px solid #e0e0e0;
+    border-left: 4px solid ${(props) => props.theme.colors.lineGrey};
+    z-index: 4;
+`
+
+const Separator = styled.div`
+    width: 100%;
+    border-bottom: 1px solid ${(props) => props.theme.colors.lineGrey};
+    margin-bottom: -2px;
 `
 
 const Loader = styled.div`
@@ -586,6 +835,7 @@ const Loader = styled.div`
     display: flex;
     align-items: center;
     justify-content: center;
+    height: 300px;
 `
 
 const ResultsContainer = styled(Margin)`
@@ -627,4 +877,21 @@ const ShareBtn = styled.button`
 const IconImg = styled.img`
     height: 18px;
     width: 18px;
+`
+const SectionCircle = styled.div`
+    background: ${(props) => props.theme.colors.backgroundHighlight};
+    border-radius: 100px;
+    height: 60px;
+    width: 60px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+`
+
+const ImportInfo = styled.span`
+    color: ${(props) => props.theme.colors.purple};
+    margin-bottom: 40px;
+    font-weight: 500;
+    cursor: pointer;
 `

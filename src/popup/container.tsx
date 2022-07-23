@@ -1,20 +1,19 @@
-import React, { PureComponent, KeyboardEventHandler } from 'react'
+import React, { KeyboardEventHandler } from 'react'
 import qs from 'query-string'
 import { connect, MapStateToProps } from 'react-redux'
 import { browser } from 'webextension-polyfill-ts'
 import styled from 'styled-components'
 
+import { StatefulUIElement } from 'src/util/ui-logic'
 import * as constants from '../constants'
-
+import Logic, { State, Event } from './logic'
 import analytics from '../analytics'
 import extractQueryFilters from '../util/nlp-time-filter'
-import { remoteFunction } from '../util/webextensionRPC'
-import Search from './components/Search'
+import { remoteFunction, runInBackground } from '../util/webextensionRPC'
 import LinkButton from './components/LinkButton'
-import ButtonIcon from './components/ButtonIcon'
+import CopyPDFLinkButton from './components/CopyPDFLinkButton'
 import { TooltipButton } from './tooltip-button'
 import { SidebarButton } from './sidebar-button'
-import { HistoryPauser } from './pause-button'
 import {
     selectors as tagsSelectors,
     acts as tagActs,
@@ -25,6 +24,7 @@ import {
     acts as collectionActs,
     CollectionsButton,
 } from './collections-button'
+import { PDFReaderButton } from './pdf-reader-button'
 import { BookmarkButton } from './bookmark-button'
 import * as selectors from './selectors'
 import * as acts from './actions'
@@ -34,11 +34,19 @@ import CollectionPicker from 'src/custom-lists/ui/CollectionPicker'
 import TagPicker from 'src/tags/ui/TagPicker'
 import { tags, collections } from 'src/util/remote-functions-background'
 import { BackContainer } from 'src/popup/components/BackContainer'
-const btnStyles = require('./components/Button.css')
 const styles = require('./components/Popup.css')
+import LoadingIndicator from '@worldbrain/memex-common/lib/common-ui/components/loading-indicator'
 
+import { createSyncSettingsStore } from 'src/sync-settings/util'
+import { isFullUrlPDF } from 'src/util/uri-utils'
+import { ToggleSwitchButton } from './components/ToggleSwitchButton'
+import { PrimaryAction } from 'src/common-ui/components/design-library/actions/PrimaryAction'
+import checkBrowser from 'src/util/check-browser'
+import { FeedActivityDot } from 'src/activity-indicator/ui'
+import type { ActivityIndicatorInterface } from 'src/activity-indicator/background'
+import { isUrlPDFViewerUrl } from 'src/pdf/util'
 import * as icons from 'src/common-ui/components/design-library/icons'
-import ButtonTooltip from 'src/common-ui/components/button-tooltip'
+import Icon from '@worldbrain/memex-common/lib/common-ui/components/icon'
 
 export interface OwnProps {}
 
@@ -63,16 +71,36 @@ interface DispatchProps {
 
 export type Props = OwnProps & StateProps & DispatchProps
 
-class PopupContainer extends PureComponent<Props> {
-    componentDidMount() {
+class PopupContainer extends StatefulUIElement<Props, State, Event> {
+    private browserName = checkBrowser()
+    private activityIndicatorBG: ActivityIndicatorInterface = runInBackground()
+    constructor(props: Props) {
+        super(
+            props,
+            new Logic({
+                tabsAPI: browser.tabs,
+                runtimeAPI: browser.runtime,
+                extensionAPI: browser.extension,
+                customListsBG: collections,
+                pdfIntegrationBG: runInBackground(),
+                syncSettings: createSyncSettingsStore({
+                    syncSettingsBG: runInBackground(),
+                }),
+            }),
+        )
+    }
+
+    async componentDidMount() {
+        await super.componentDidMount()
         analytics.trackEvent({
             category: 'Global',
             action: 'openPopup',
         })
-        this.props.initState()
+
+        await this.props.initState()
     }
 
-    processEvent = remoteFunction('processEvent')
+    processAnalyticsEvent = remoteFunction('processEvent')
 
     closePopup = () => window.close()
 
@@ -84,7 +112,7 @@ class PopupContainer extends PureComponent<Props> {
                 action: 'searchViaPopup',
             })
 
-            this.processEvent({
+            this.processAnalyticsEvent({
                 type: EVENT_NAMES.SEARCH_POPUP,
             })
 
@@ -138,108 +166,231 @@ class PopupContainer extends PureComponent<Props> {
         })
         // Redux actions
         if (added) {
+            await this.processEvent('addPageList', { listId: added })
             this.props.onCollectionAdd(added)
         }
         if (deleted) {
-            return this.props.onCollectionDel(deleted)
+            await this.processEvent('delPageList', { listId: deleted })
+            this.props.onCollectionDel(deleted)
         }
         return backendResult
     }
 
-    handleListAllTabs = (listName: string) =>
-        collections.addOpenTabsToList({ name: listName })
-    fetchListsForPage = async () =>
-        collections.fetchPageLists({ url: this.props.url })
+    handleListAllTabs = (listId: number) =>
+        collections.addOpenTabsToList({ listId })
+
+    getPDFLocation = () => {
+        if (this.state.currentPageUrl.startsWith('file://')) {
+            return 'local'
+        } else {
+            return 'remote'
+        }
+    }
+
+    private get isCurrentPagePDF(): boolean {
+        return isFullUrlPDF(this.props.url)
+    }
+
+    getPDFMode = () => {
+        if (
+            isUrlPDFViewerUrl(this.state.currentPageUrl, {
+                runtimeAPI: browser.runtime,
+            })
+        ) {
+            return 'reader'
+        } else {
+            return 'original'
+        }
+    }
+
+    private whichFeed = () => {
+        if (process.env.NODE_ENV === 'production') {
+            return 'https://memex.social/feed'
+        } else {
+            return 'https://staging.memex.social/feed'
+        }
+    }
+
+    private maybeRenderBlurredNotice() {
+        if (!this.isCurrentPagePDF) {
+            return null
+        }
+
+        const mode = this.getPDFMode()
+        const location = this.getPDFLocation()
+
+        if (this.browserName === 'firefox' && location === 'local') {
+            return (
+                <BlurredNotice browser={this.browserName}>
+                    <NoticeTitle>
+                        Annotating local PDFs is not possible on Firefox
+                    </NoticeTitle>
+                    <NoticeSubTitle>
+                        Use Chromium-based browsers to use this feature
+                    </NoticeSubTitle>
+                </BlurredNotice>
+            )
+        }
+
+        if (
+            this.browserName !== 'firefox' &&
+            location === 'local' &&
+            !this.state.isFileAccessAllowed
+        ) {
+            return (
+                <BlurredNotice browser={this.browserName}>
+                    <NoticeTitle>
+                        To annotate file based PDFs enable the setting
+                    </NoticeTitle>
+                    <NoticeSubTitle>"Allow access to file URLs"</NoticeSubTitle>
+                    <PrimaryAction
+                        label="Go to Settings"
+                        onClick={() =>
+                            browser.tabs.create({
+                                url: `chrome://extensions/?id=${browser.runtime.id}`,
+                            })
+                        }
+                    />
+                </BlurredNotice>
+            )
+        }
+
+        if (mode === 'original') {
+            return (
+                <BlurredNotice browser={this.browserName}>
+                    <NoticeTitle>Save & annotate this PDF</NoticeTitle>
+                    <PrimaryAction
+                        label="Open Memex PDF Reader"
+                        onClick={() =>
+                            this.processEvent('togglePDFReader', null)
+                        }
+                    />
+                </BlurredNotice>
+            )
+        }
+
+        return null
+    }
 
     renderChildren() {
+        if (this.state.loadState === 'running') {
+            return (
+                <LoadingBox>
+                    <LoadingIndicator />
+                </LoadingBox>
+            )
+        }
+
         if (this.props.showTagsPicker) {
             return (
-                <TagPicker
-                    onUpdateEntrySelection={this.handleTagUpdate}
-                    initialSelectedEntries={this.fetchTagsForPage}
-                    actOnAllTabs={this.handleTagAllTabs}
-                >
-                    <BackContainer onClick={this.props.toggleShowTagsPicker} />
-                </TagPicker>
+                <SpacePickerContainer>
+                    <BackContainer
+                        onClick={this.props.toggleShowTagsPicker}
+                        header="Add Tags"
+                    />
+                    <TagPicker
+                        onUpdateEntrySelection={this.handleTagUpdate}
+                        initialSelectedEntries={this.fetchTagsForPage}
+                        actOnAllTabs={this.handleTagAllTabs}
+                    ></TagPicker>
+                </SpacePickerContainer>
             )
         }
 
         if (this.props.showCollectionsPicker) {
             return (
-                <CollectionPicker
-                    onUpdateEntrySelection={this.handleListUpdate}
-                    initialSelectedEntries={this.fetchListsForPage}
-                    actOnAllTabs={this.handleListAllTabs}
-                >
+                <SpacePickerContainer>
                     <BackContainer
                         onClick={this.props.toggleShowCollectionsPicker}
+                        header={'Add to Spaces'}
                     />
-                </CollectionPicker>
+                    <CollectionPicker
+                        selectEntry={(listId) =>
+                            this.handleListUpdate({
+                                added: listId,
+                                deleted: null,
+                            })
+                        }
+                        unselectEntry={(listId) =>
+                            this.handleListUpdate({
+                                added: null,
+                                deleted: listId,
+                            })
+                        }
+                        createNewEntry={async (name) => {
+                            this.props.onCollectionAdd(name)
+                            return collections.createCustomList({ name })
+                        }}
+                        initialSelectedEntries={() => this.state.pageListIds}
+                        actOnAllTabs={this.handleListAllTabs}
+                    />
+                </SpacePickerContainer>
             )
         }
 
         return (
-            <React.Fragment>
-                <hr />
-                <div className={styles.item}>
-                    <BookmarkButton closePopup={this.closePopup} />
-                </div>
-                <hr />
-                <BottomBarBox>
-                    <Search
-                        searchValue={this.props.searchValue}
-                        onSearchChange={this.props.handleSearchChange}
-                        onSearchEnter={this.onSearchEnter}
-                    />
-                </BottomBarBox>
-                <div className={styles.item}>
-                    <LinkButton goToDashboard={this.onSearchClick} />
-                </div>
-                <div className={styles.item}>
-                    <TagsButton />
-                </div>
-
-                <div className={styles.item}>
-                    <CollectionsButton />
-                </div>
-                <hr />
-                <div className={styles.item}>
-                    <SidebarButton closePopup={this.closePopup} />
-                </div>
-
-                <div className={styles.item}>
-                    <TooltipButton closePopup={this.closePopup} />
-                </div>
-
-                <hr />
-
-                <div className={styles.buttonContainer}>
-                    <a
-                        href="https://worldbrain.io/feedback"
-                        target="_blank"
-                        className={styles.feedbackButton}
+            <PopupContainerContainer>
+                <FeedActivitySection>
+                    <FeedActivitySectionInnerContainer
+                        onClick={() => window.open(this.whichFeed(), '_blank')}
                     >
-                        🐞 Feedback
-                    </a>
-                    <div className={styles.buttonBox}>
-                        <div
+                        <FeedActivityDot
+                            key="activity-feed-indicator"
+                            activityIndicatorBG={this.activityIndicatorBG}
+                            openFeedUrl={() =>
+                                window.open(this.whichFeed(), '_blank')
+                            }
+                        />
+                        Activity Feed
+                    </FeedActivitySectionInnerContainer>
+                    <ButtonContainer>
+                        <Icon
+                            onClick={() =>
+                                window.open('https://worldbrain.io/tutorials')
+                            }
+                            filePath={icons.helpIcon}
+                            heightAndWidth={'20px'}
+                        />
+                        <Icon
                             onClick={() =>
                                 window.open(
                                     `${constants.OPTIONS_URL}#/settings`,
                                 )
                             }
-                            className={btnStyles.settings}
-                        />
-                        <div
-                            onClick={() =>
-                                window.open('https://worldbrain.io/help')
-                            }
-                            className={btnStyles.help}
+                            filePath={icons.settings}
+                            heightAndWidth={'20px'}
                         />
                         {/*<NotifButton />*/}
-                    </div>
-                </div>
-            </React.Fragment>
+                    </ButtonContainer>
+                </FeedActivitySection>
+                {this.maybeRenderBlurredNotice()}
+                <BookmarkButton closePopup={this.closePopup} />
+                <CollectionsButton pageListsIds={this.state.pageListIds} />
+                {this.state.shouldShowTagsUIs && <TagsButton />}
+                <hr />
+                <LinkButton goToDashboard={this.onSearchClick} />
+
+                <hr />
+
+                <SidebarButton closePopup={this.closePopup} />
+                <TooltipButton closePopup={this.closePopup} />
+                <PDFReaderButton
+                    pdfMode={this.getPDFMode()}
+                    //closePopup={this.closePopup}
+                    onBtnClick={() =>
+                        this.processEvent('togglePDFReader', null)
+                    }
+                    onToggleClick={() => {
+                        this.processEvent('togglePDFReaderEnabled', null)
+                    }}
+                    isEnabled={this.state.isPDFReaderEnabled}
+                />
+                {this.getPDFMode() === 'reader' && (
+                    <CopyPDFLinkButton
+                        currentPageUrl={this.state.currentPageUrl}
+                    />
+                )}
+            </PopupContainerContainer>
         )
     }
 
@@ -247,6 +398,79 @@ class PopupContainer extends PureComponent<Props> {
         return <div className={styles.popup}>{this.renderChildren()}</div>
     }
 }
+
+const PopupContainerContainer = styled.div``
+
+const ButtonContainer = styled.div`
+    display: flex;
+    align-items: center;
+    grid-gap: 5px;
+`
+
+const FeedActivitySectionInnerContainer = styled.div`
+    display: flex;
+    align-items: center;
+    grid-gap: 16px;
+    font-size: 14px;
+    justify-content: flex-start;
+    cursor: pointer;
+    color: ${(props) => props.theme.colors.darkerText};
+    font-weight: 700;
+    flex: 1;
+    max-width: 50%;
+`
+
+const NoticeTitle = styled.div`
+    font-size: 16px;
+    color: ${(props) => props.theme.colors.primary};
+    font-weight: bold;
+    padding-bottom: 10px;
+    text-align: center;
+    padding: 0 10px;
+    margin-bottom: 20px;
+`
+
+const LoadingBox = styled.div`
+    display: flex;
+    height: 200px;
+    justify-content: center;
+    align-items: center;
+`
+
+const NoticeSubTitle = styled.div`
+    font-size: 14px;
+    color: ${(props) => props.theme.colors.darkgrey};
+    font-weight: normal;
+    padding-bottom: 15px;
+    text-align: center;
+    padding: 0 10px;
+    margin-bottom: 20px;
+`
+
+const BlurredNotice = styled.div<{
+    browser: string
+    location: string
+}>`
+    position absolute;
+    height: ${(props) =>
+        props.browser === 'firefox' && props.location === 'local'
+            ? '90%'
+            : ' 66%'};
+    border-bottom: 1px solid #e0e0e0;
+    width: 100%;
+    z-index: 20;
+    overflow-y: ${(props) =>
+        props.browser === 'firefox' && props.location === 'local'
+            ? 'hidden'
+            : 'scroll'};
+    background: ${(props) => (props.browser === 'firefox' ? 'white' : 'none')};
+    backdrop-filter: blur(10px);
+    display: flex;
+    justify-content: flex-start;
+    padding-top: 50px;
+    align-items: center;
+    flex-direction: column;
+`
 
 const DashboardButtonBox = styled.div`
     height: 45px;
@@ -260,6 +484,21 @@ const DashboardButtonBox = styled.div`
         background-color: #e0e0e0;
         border-radius: 3px;
     }
+`
+
+const FeedActivitySection = styled.div`
+    width: fill-available;
+    display: flex;
+    justify-content: space-between;
+    height: 50px;
+    border-bottom: 1px solid ${(props) => props.theme.colors.lineGrey};
+    align-items: center;
+    padding: 0px 10px 0px 24px;
+    grid-auto-flow: column;
+
+    // &:hover {
+    //     background-color: ${(props) => props.theme.colors.backgroundColor};
+    // }
 `
 
 const BottomBarBox = styled.div`
@@ -277,6 +516,11 @@ const BottomBarBox = styled.div`
 const LinkButtonBox = styled.img`
     height: 24px;
     width: 24px;
+`
+
+const SpacePickerContainer = styled.div`
+    display: flex;
+    flex-direction: column;
 `
 
 const mapState: MapStateToProps<StateProps, OwnProps, RootState> = (state) => ({

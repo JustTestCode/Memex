@@ -4,7 +4,7 @@ const baseStyles = {
     bmMenuWrap: {
         top: 0,
         right: '-60px',
-        zIndex: 2147483644,
+        zIndex: 2147483641,
         transition: 'all 0.1s cubic-bezier(0.65, 0.05, 0.36, 1)',
     },
     bmMenu: {
@@ -44,7 +44,7 @@ const baseStyles = {
 
 const menuStyles = (env, isOpen) => {
     if (env === 'overview') {
-        ;((baseStyles.bmMenu.top as unknown) as string) = '45px'
+        ;((baseStyles.bmMenu.top as unknown) as string) = '60px'
         ;((baseStyles.bmMenuWrap.top as unknown) as string) = '0px'
         ;((baseStyles.bmMenu.right as unknown) as string) = '0px'
         ;((baseStyles.bmMenuWrap.zIndex as unknown) as string) = '999'

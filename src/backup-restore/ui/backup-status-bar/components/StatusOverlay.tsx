@@ -14,7 +14,7 @@ import {
     WhiteSpacer20,
     WhiteSpacer10,
 } from 'src/common-ui/components/design-library/typography'
-import { LoadingIndicator } from 'src/common-ui/components'
+import LoadingIndicator from '@worldbrain/memex-common/lib/common-ui/components/loading-indicator'
 
 interface Props {
     header?: string
@@ -82,7 +82,7 @@ export default class StatusOverlay extends PureComponent<Props> {
     }
 
     onBackupSetupRequested() {
-        window.open(`${browser.extension.getURL('/options.html')}#/backup`)
+        window.open(`${browser.runtime.getURL('/options.html')}#/backup`)
     }
 
     enableAutomaticBackup() {
@@ -91,7 +91,7 @@ export default class StatusOverlay extends PureComponent<Props> {
             this.setState({ automaticBackupEnabled: true })
         }
         if (!this.state.hasInitialBackup) {
-            window.location.href = `${browser.extension.getURL(
+            window.location.href = `${browser.runtime.getURL(
                 '/options.html',
             )}#/backup`
         }
@@ -202,7 +202,6 @@ export default class StatusOverlay extends PureComponent<Props> {
                                     {lastBackup && (
                                         <div className={styles.bottomBorder} />
                                     )}
-
                                     {nextBackup &&
                                         this.state.automaticBackupEnabled && (
                                             <div className={styles.backup}>

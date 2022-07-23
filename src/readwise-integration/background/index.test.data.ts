@@ -1,8 +1,9 @@
-import * as DATA from 'src/tests/common-fixtures.data'
-import { normalizeUrl } from '@worldbrain/memex-url-utils'
-import { Annotation } from 'src/annotations/types'
 import moment from 'moment'
-import { ReadwiseHighlight } from './types/api'
+import { normalizeUrl } from '@worldbrain/memex-url-utils'
+import type { ReadwiseHighlight } from '@worldbrain/memex-common/lib/readwise-integration/api/types'
+
+import * as DATA from 'src/tests/common-fixtures.data'
+import type { Annotation } from 'src/annotations/types'
 import { getAnchorSelector } from 'src/highlighting/utils'
 export * from 'src/tests/common-fixtures.data'
 
@@ -32,6 +33,7 @@ export const ANNOT_1: Annotation = {
         minute: 0,
     }).toDate(),
     tags: [],
+    lists: [],
 }
 export const ANNOT_2: Annotation = {
     url: DATA.PAGE_2.url + '#1111111111',
@@ -59,6 +61,7 @@ export const ANNOT_2: Annotation = {
         minute: 0,
     }).toDate(),
     tags: [],
+    lists: [],
 }
 
 export const ANNOT_3: Annotation = {
@@ -74,6 +77,18 @@ export const ANNOT_3: Annotation = {
         minute: 0,
     }).toDate(),
     tags: [],
+    lists: [],
+}
+
+export const LIST_1 = {
+    id: 1,
+    name: 'list 1',
+    createdAt: new Date('2022-05-04'),
+}
+export const LIST_2 = {
+    id: 2,
+    name: 'list 2',
+    createdAt: new Date('2022-05-05'),
 }
 
 export const HIGHLIGHT_1 = (annotationUrl: string): ReadwiseHighlight => ({

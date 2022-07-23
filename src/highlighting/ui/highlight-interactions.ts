@@ -10,16 +10,16 @@ import {
 } from 'src/highlighting/types'
 import { AnnotationClickHandler } from 'src/highlighting/ui/types'
 import { retryUntil } from 'src/util/retry-until'
-import { descriptorToRange, markRange } from './anchoring/index'
+import { descriptorToRange } from './anchoring/index'
 import * as Raven from 'src/util/raven'
-import { Annotation, AnnotationPrivacyLevels } from 'src/annotations/types'
+import { Annotation } from 'src/annotations/types'
 import { SharedInPageUIInterface } from 'src/in-page-ui/shared-state/types'
 import * as anchoring from 'src/highlighting/ui/anchoring'
 import {
     AnnotationCacheChangeEvents,
     AnnotationsCacheInterface,
 } from 'src/annotations/annotations-cache'
-import { generateUrl } from 'src/annotations/utils'
+import { generateAnnotationUrl } from 'src/annotations/utils'
 import { AnalyticsEvent } from 'src/analytics/types'
 import { highlightRange } from 'src/highlighting/ui/anchoring/highlighter'
 
@@ -87,21 +87,23 @@ export const renderAnnotationCacheChanges = ({
 }
 
 export interface SaveAndRenderHighlightDeps {
-    getUrlAndTitle: () => { pageUrl: string; title: string }
+    getUrlAndTitle: () => Promise<{ pageUrl: string; title: string }>
     getSelection: () => Selection
     annotationsCache: AnnotationsCacheInterface
     analyticsEvent?: AnalyticsEvent
     inPageUI: SharedInPageUIInterface
-    options?: { clickToEdit?: boolean }
+    shouldShare?: boolean
 }
 
 export type HighlightRendererInterface = HighlightRenderInterface &
     HighlightInteractionsInterface
 
+export interface HighlightRendererDependencies {}
+
 export class HighlightRenderer implements HighlightRendererInterface {
     private observer
 
-    constructor() {
+    constructor(private deps: HighlightRendererDependencies) {
         document.addEventListener('click', this.handleOutsideHighlightClick)
     }
 
@@ -124,7 +126,9 @@ export class HighlightRenderer implements HighlightRendererInterface {
     }
 
     saveAndRenderHighlightAndEditInSidebar = async (
-        params: SaveAndRenderHighlightDeps,
+        params: SaveAndRenderHighlightDeps & {
+            showSpacePicker?: boolean
+        },
     ) => {
         analytics.trackEvent(
             params.analyticsEvent ?? {
@@ -138,7 +142,9 @@ export class HighlightRenderer implements HighlightRendererInterface {
         if (annotation) {
             await params.inPageUI.showSidebar({
                 annotationUrl: annotation.url,
-                action: 'edit_annotation',
+                action: params.showSpacePicker
+                    ? 'edit_annotation_spaces'
+                    : 'edit_annotation',
             })
         } else {
             await params.inPageUI.showSidebar({ action: 'comment' })
@@ -165,38 +171,43 @@ export class HighlightRenderer implements HighlightRendererInterface {
             return null
         }
 
-        const { pageUrl, title } = params.getUrlAndTitle()
+        const { pageUrl, title } = await params.getUrlAndTitle()
         const anchor = await extractAnchorFromSelection(selection)
         const body = anchor ? anchor.quote : ''
 
-        const annotation = {
-            url: generateUrl({ pageUrl, now: () => Date.now() }),
+        const annotation: Annotation = {
+            url: generateAnnotationUrl({ pageUrl, now: () => Date.now() }),
             body,
             pageUrl,
             tags: [],
+            lists: [],
             comment: '',
             selector: anchor,
             pageTitle: title,
-        } as Annotation
+        }
 
-        await Promise.all([
-            params.annotationsCache.create({
-                ...annotation,
-                privacyLevel: AnnotationPrivacyLevels.PRIVATE,
-            }),
-            this.renderHighlight(
-                annotation,
-                ({ openInEdit, annotationUrl }) => {
-                    params.inPageUI.showSidebar({
-                        annotationUrl,
-                        action:
-                            params.options?.clickToEdit || openInEdit
+        try {
+            await Promise.all([
+                params.annotationsCache.create(annotation, {
+                    shouldShare: params.shouldShare,
+                    shouldCopyShareLink: params.shouldShare,
+                }),
+                this.renderHighlight(
+                    annotation,
+                    ({ openInEdit, annotationUrl }) => {
+                        params.inPageUI.showSidebar({
+                            annotationUrl,
+                            action: openInEdit
                                 ? 'edit_annotation'
                                 : 'show_annotation',
-                    })
-                },
-            ),
-        ])
+                        })
+                    },
+                ),
+            ])
+        } catch (err) {
+            this.removeAnnotationHighlight(annotation.url)
+            throw err
+        }
 
         return annotation
     }
@@ -306,11 +317,7 @@ export class HighlightRenderer implements HighlightRendererInterface {
         ) as HTMLElement
 
         if ($highlight) {
-            const top = getOffsetTop($highlight) - window.innerHeight / 2
-            window.scrollTo({ top, behavior: 'smooth' })
-            // The pixels scrolled need to be returned in order to restrict
-            // scrolling when mouse is over the sidebar.
-            return top
+            $highlight.scrollIntoView({ behavior: 'smooth', block: 'center' })
         } else {
             console.error('MEMEX: Oops, no highlight found to scroll to')
         }
@@ -323,7 +330,7 @@ export class HighlightRenderer implements HighlightRendererInterface {
     highlightAndScroll = (annotation: Annotation) => {
         this.removeHighlights({ onlyRemoveDarkHighlights: true })
         this.makeHighlightDark(annotation)
-        return this.scrollToHighlight(annotation)
+        this.scrollToHighlight(annotation)
     }
 
     /**
@@ -508,7 +515,6 @@ export class HighlightRenderer implements HighlightRendererInterface {
 
     /**
      * Removes the highlights of a given annotation.
-     * Called when the annotation is deleted.
      */
     removeAnnotationHighlight = (url: string) => {
         const baseClass = styles['memex-highlight']

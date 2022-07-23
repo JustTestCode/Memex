@@ -8,7 +8,7 @@ import {
     COLLECTION_NAMES,
     SPECIAL_LIST_NAMES,
     SPECIAL_LIST_IDS,
-} from '@worldbrain/memex-storage/lib/lists/constants'
+} from '@worldbrain/memex-common/lib/storage/modules/lists/constants'
 
 import { SuggestPlugin } from 'src/search/plugins'
 import { SuggestResult } from 'src/search/types'
@@ -72,6 +72,11 @@ export default class CustomListStorage extends StorageModule {
                     operation: 'findObject',
                     args: { id: '$id:pk' },
                 },
+                findListsByIds: {
+                    collection: CustomListStorage.CUSTOM_LISTS_COLL,
+                    operation: 'findObjects',
+                    args: { id: { $in: '$ids:array' } },
+                },
                 findListEntriesByListId: {
                     collection: CustomListStorage.LIST_ENTRIES_COLL,
                     operation: 'findObjects',
@@ -82,6 +87,14 @@ export default class CustomListStorage extends StorageModule {
                     operation: 'findObjects',
                     args: { pageUrl: '$url:string' },
                 },
+                findListEntriesByUrls: {
+                    collection: CustomListStorage.LIST_ENTRIES_COLL,
+                    operation: 'findObjects',
+                    args: {
+                        listId: '$listId:number',
+                        pageUrl: { $in: '$urls:string' },
+                    },
+                },
                 findListEntriesByLists: {
                     collection: CustomListStorage.LIST_ENTRIES_COLL,
                     operation: 'findObjects',
@@ -89,6 +102,11 @@ export default class CustomListStorage extends StorageModule {
                         listId: { $in: '$listIds:array' },
                         pageUrl: '$url:string',
                     },
+                },
+                findListEntry: {
+                    collection: CustomListStorage.LIST_ENTRIES_COLL,
+                    operation: 'findObject',
+                    args: { pageUrl: '$pageUrl:string', listId: '$listId:int' },
                 },
                 findListByNameIgnoreCase: {
                     collection: CustomListStorage.CUSTOM_LISTS_COLL,
@@ -215,6 +233,22 @@ export default class CustomListStorage extends StorageModule {
         return this.operation('findListById', { id })
     }
 
+    async fetchListByIds(ids: number[]): Promise<PageList[]> {
+        const listsData: PageList[] = await this.operation('findListsByIds', {
+            ids,
+        })
+        const orderedLists: PageList[] = []
+
+        for (const listId of ids) {
+            const data = listsData.find((list) => list.id === listId)
+            if (data) {
+                orderedLists.push(data)
+            }
+        }
+
+        return orderedLists
+    }
+
     async fetchListWithPagesById(id: number) {
         const list = await this.fetchListById(id)
 
@@ -229,6 +263,13 @@ export default class CustomListStorage extends StorageModule {
             pages.map((p) => p.fullUrl),
             pages.length > 0,
         )
+    }
+
+    async fetchListEntry(
+        listId: number,
+        pageUrl: string,
+    ): Promise<PageListEntry | null> {
+        return this.operation('findListEntry', { listId, pageUrl })
     }
 
     async fetchListPagesById({
@@ -272,16 +313,32 @@ export default class CustomListStorage extends StorageModule {
         })
     }
 
+    async fetchListPageEntriesByUrls({
+        listId,
+        normalizedPageUrls,
+    }: {
+        listId: number
+        normalizedPageUrls: string[]
+    }) {
+        const pageListEntries: PageListEntry[] = await this.operation(
+            'findListEntriesByUrls',
+            { urls: normalizedPageUrls, listId },
+        )
+        return pageListEntries
+    }
+
     async insertCustomList({
         id,
         name,
         isDeletable = true,
         isNestable = true,
+        createdAt = new Date(),
     }: {
         id: number
         name: string
         isDeletable?: boolean
         isNestable?: boolean
+        createdAt?: Date
     }): Promise<number> {
         const { object } = await this.operation('createList', {
             id,
@@ -289,7 +346,7 @@ export default class CustomListStorage extends StorageModule {
             isNestable,
             isDeletable,
             searchableName: name,
-            createdAt: new Date(),
+            createdAt,
         })
 
         return object.id
@@ -312,10 +369,10 @@ export default class CustomListStorage extends StorageModule {
     }
 
     async removeList({ id }: { id: number }) {
-        const list = await this.operation('deleteList', { id })
         const pages = await this.operation('deleteListEntriesByListId', {
             listId: id,
         })
+        const list = await this.operation('deleteList', { id })
         return { list, pages }
     }
 
@@ -354,7 +411,7 @@ export default class CustomListStorage extends StorageModule {
 
     async suggestLists({
         query,
-        limit = 5,
+        limit = 20,
     }: {
         query: string
         limit?: number
@@ -372,9 +429,12 @@ export default class CustomListStorage extends StorageModule {
             },
         )
 
-        const suggestedLists = await this.operation('findListsIncluding', {
-            includedIds: suggestions.map(({ pk }) => pk),
-        })
+        const suggestedLists: PageList[] = await this.operation(
+            'findListsIncluding',
+            {
+                includedIds: suggestions.map(({ pk }) => pk),
+            },
+        )
 
         return suggestedLists.filter(CustomListStorage.filterOutSpecialLists)
     }

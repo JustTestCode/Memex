@@ -20,23 +20,16 @@ import { OpenSidebarArgs } from 'src/sidebar-overlay/types'
 import { KeyboardActions } from 'src/sidebar-overlay/sidebar/types'
 import SocialBG from 'src/social-integration/background'
 import { buildPostUrlId } from 'src/social-integration/util'
-import {
-    Annotation,
-    AnnotationSender,
-    AnnotListEntry,
-    AnnotationPrivacyLevels,
-} from 'src/annotations/types'
-import { AnnotationInterface, CreateAnnotationParams } from './types'
+import type { Annotation, AnnotationSender } from 'src/annotations/types'
+import type { AnnotationInterface, CreateAnnotationParams } from './types'
 import { InPageUIContentScriptRemoteInterface } from 'src/in-page-ui/content_script/types'
 import { InPageUIRibbonAction } from 'src/in-page-ui/shared-state/types'
 import { BrowserSettingsStore } from 'src/util/settings'
-import { updateSuggestionsCache } from 'src/tags/utils'
 import { TagsSettings } from 'src/tags/background/types'
-import { limitSuggestionsStorageLength } from 'src/tags/background'
-import { generateUrl } from 'src/annotations/utils'
+import { generateAnnotationUrl } from 'src/annotations/utils'
 import { PageIndexingBackground } from 'src/page-indexing/background'
 import { Analytics } from 'src/analytics/types'
-import { getUrl } from 'src/util/uri-utils'
+import { getUnderlyingResourceUrl } from 'src/util/uri-utils'
 import { ServerStorageModules } from 'src/storage/types'
 import { GetUsersPublicDetailsResult } from '@worldbrain/memex-common/lib/user-management/types'
 
@@ -65,6 +58,9 @@ export default class DirectLinkingBackground {
             getServerStorage: () => Promise<
                 Pick<ServerStorageModules, 'contentSharing' | 'userManagement'>
             >
+            preAnnotationDelete(params: {
+                annotationUrl: string
+            }): Promise<void>
         },
     ) {
         this.socialBg = options.socialBg
@@ -93,15 +89,6 @@ export default class DirectLinkingBackground {
             getAllAnnotationsByUrl: this.getAllAnnotationsByUrl.bind(this),
             listAnnotationsByPageUrl: this.listAnnotationsByPageUrl.bind(this),
             createAnnotation: this.createAnnotation.bind(this),
-            findAnnotationPrivacyLevels: this.findAnnotationPrivacyLevels.bind(
-                this,
-            ),
-            updateAnnotationPrivacyLevel: this.updateAnnotationPrivacyLevel.bind(
-                this,
-            ),
-            updateAnnotationPrivacyLevels: this.updateAnnotationPrivacyLevels.bind(
-                this,
-            ),
             editAnnotation: this.editAnnotation.bind(this),
             editAnnotationTags: this.editAnnotationTags.bind(this),
             updateAnnotationTags: this.updateAnnotationTags.bind(this),
@@ -114,12 +101,11 @@ export default class DirectLinkingBackground {
             toggleSidebarOverlay: this.toggleSidebarOverlay.bind(this),
             toggleAnnotBookmark: this.toggleAnnotBookmark.bind(this),
             getAnnotBookmark: this.getAnnotBookmark.bind(this),
-            insertAnnotToList: this.insertAnnotToList.bind(this),
-            removeAnnotFromList: this.removeAnnotFromList.bind(this),
             goToAnnotationFromSidebar: this.goToAnnotationFromDashboardSidebar.bind(
                 this,
             ),
             getSharedAnnotations: this.getSharedAnnotations,
+            getListIdsForAnnotation: this.getListIdsForAnnotation,
         }
 
         this.localStorage = new BrowserSettingsStore<TagsSettings>(
@@ -259,6 +245,21 @@ export default class DirectLinkingBackground {
         }
     }
 
+    async removeChildAnnotationsFromList(
+        normalizedPageUrl: string,
+        listId: number,
+    ): Promise<void> {
+        const annotations = await this.annotationStorage.listAnnotationsByPageUrl(
+            { pageUrl: normalizedPageUrl },
+        )
+
+        await Promise.all(
+            annotations.map(({ url }) =>
+                this.annotationStorage.removeAnnotFromList({ listId, url }),
+            ),
+        )
+    }
+
     followAnnotationRequest({ tab }: TabArg) {
         this.requests.followAnnotationRequest(tab.id)
     }
@@ -268,7 +269,7 @@ export default class DirectLinkingBackground {
         const result = await this.backend.createDirectLink(request)
         await this.annotationStorage.createAnnotation({
             pageTitle,
-            pageUrl: this._normalizeUrl(getUrl(tab.url)),
+            pageUrl: this._normalizeUrl(getUnderlyingResourceUrl(tab.url)),
             body: request.anchor.quote,
             url: result.url,
             selector: request.anchor,
@@ -314,7 +315,8 @@ export default class DirectLinkingBackground {
             },
         )
 
-        url = url == null && tab != null ? getUrl(tab.url) : url
+        url =
+            url == null && tab != null ? getUnderlyingResourceUrl(tab.url) : url
         url = isSocialPost
             ? await this.lookupSocialId(url)
             : this._normalizeUrl(url)
@@ -368,9 +370,9 @@ export default class DirectLinkingBackground {
         toCreate: CreateAnnotationParams,
         { skipPageIndexing }: { skipPageIndexing?: boolean } = {},
     ) {
-        let fullPageUrl = toCreate.pageUrl ?? getUrl(tab?.url)
+        let fullPageUrl = toCreate.pageUrl ?? getUnderlyingResourceUrl(tab?.url)
         if (!isFullUrl(fullPageUrl)) {
-            fullPageUrl = getUrl(tab?.url)
+            fullPageUrl = getUnderlyingResourceUrl(tab?.url)
             if (!isFullUrl(fullPageUrl)) {
                 throw new Error(
                     'Could not get full URL while creating annotation',
@@ -399,7 +401,10 @@ export default class DirectLinkingBackground {
 
         const annotationUrl =
             toCreate.url ??
-            generateUrl({ pageUrl: normalizedPageUrl, now: () => Date.now() })
+            generateAnnotationUrl({
+                pageUrl: normalizedPageUrl,
+                now: () => Date.now(),
+            })
 
         if (isFullUrl(annotationUrl)) {
             throw new Error('Annotation ID should not be a full URL')
@@ -413,12 +418,6 @@ export default class DirectLinkingBackground {
             body: toCreate.body,
             selector: toCreate.selector,
             createdWhen: new Date(toCreate.createdWhen ?? Date.now()),
-        })
-
-        await this.annotationStorage.createAnnotationPrivacyLevel({
-            annotation: annotationUrl,
-            privacyLevel:
-                toCreate.privacyLevel ?? AnnotationPrivacyLevels.PRIVATE,
         })
 
         if (toCreate.isBookmarked) {
@@ -442,71 +441,8 @@ export default class DirectLinkingBackground {
         return annotationUrl
     }
 
-    async findAnnotationPrivacyLevels(_, params: { annotationUrls: string[] }) {
-        const storedLevels = await this.annotationStorage.getPrivacyLevelsByAnnotation(
-            { annotations: params.annotationUrls },
-        )
-
-        const privacyLevels = {}
-        for (const annotationUrl of params.annotationUrls) {
-            privacyLevels[annotationUrl] =
-                storedLevels[annotationUrl]?.privacyLevel ??
-                AnnotationPrivacyLevels.PRIVATE
-        }
-        return privacyLevels
-    }
-
-    async updateAnnotationPrivacyLevel(
-        _,
-        params: { annotation: string; privacyLevel: AnnotationPrivacyLevels },
-    ) {
-        await this.annotationStorage.createOrUpdateAnnotationPrivacyLevel(
-            params,
-        )
-    }
-
-    async updateAnnotationPrivacyLevels(
-        _,
-        params: {
-            annotationPrivacyLevels: {
-                [annotation: string]: AnnotationPrivacyLevels
-            }
-            respectProtected?: boolean
-        },
-    ) {
-        const existingLevels = params.respectProtected
-            ? await this.annotationStorage.getPrivacyLevelsByAnnotation({
-                  annotations: Object.keys(params.annotationPrivacyLevels),
-              })
-            : {}
-
-        for (const [annotation, privacyLevel] of Object.entries(
-            params.annotationPrivacyLevels,
-        )) {
-            if (
-                existingLevels[annotation]?.privacyLevel ===
-                AnnotationPrivacyLevels.PROTECTED
-            ) {
-                continue
-            }
-
-            await this.annotationStorage.createOrUpdateAnnotationPrivacyLevel({
-                annotation,
-                privacyLevel,
-            })
-        }
-    }
-
-    async insertAnnotToList(_, params: AnnotListEntry) {
-        return this.annotationStorage.insertAnnotToList(params)
-    }
-
     async getAnnotationByPk(pk) {
         return this.annotationStorage.getAnnotationByPk(pk)
-    }
-
-    async removeAnnotFromList(_, params: AnnotListEntry) {
-        return this.annotationStorage.removeAnnotFromList(params)
     }
 
     async toggleAnnotBookmark(_, { url }: { url: string }) {
@@ -558,6 +494,17 @@ export default class DirectLinkingBackground {
         }))
     }
 
+    getListIdsForAnnotation: AnnotationInterface<
+        'provider'
+    >['getListIdsForAnnotation'] = async (_, { annotationId }) => {
+        const listEntries = await this.annotationStorage.findListEntriesByUrl({
+            url: annotationId,
+        })
+        const listIds = new Set<number>()
+        listEntries.forEach((entry) => listIds.add(entry.listId))
+        return [...listIds]
+    }
+
     async updateAnnotationBookmark(
         _,
         { url, isBookmarked }: { url: string; isBookmarked: boolean },
@@ -606,6 +553,9 @@ export default class DirectLinkingBackground {
             await this.annotationStorage.deleteTagsByUrl({ url: pk })
         }
 
+        await this.options.preAnnotationDelete({
+            annotationUrl: pk,
+        })
         await this.annotationStorage.deleteAnnotation(pk)
     }
 
@@ -613,24 +563,7 @@ export default class DirectLinkingBackground {
         return this.annotationStorage.getTagsByAnnotationUrl(url)
     }
 
-    async _updateTagSuggestionsCache(args: {
-        added?: string
-        removed?: string
-    }) {
-        return updateSuggestionsCache({
-            ...args,
-            suggestionLimit: limitSuggestionsStorageLength,
-            getCache: async () => {
-                const suggestions = await this.localStorage.get('suggestions')
-                return suggestions ?? []
-            },
-            setCache: (suggestions: string[]) =>
-                this.localStorage.set('suggestions', suggestions),
-        })
-    }
-
     async addTagForAnnotation(_, { tag, url }) {
-        await this._updateTagSuggestionsCache({ added: tag })
         return this.annotationStorage.modifyTags(true)(tag, url)
     }
 

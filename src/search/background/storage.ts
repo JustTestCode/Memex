@@ -1,16 +1,18 @@
-import Storex from '@worldbrain/storex'
+import type Storex from '@worldbrain/storex'
 import {
     StorageModule,
     StorageModuleConfig,
 } from '@worldbrain/storex-pattern-modules'
-import { COLLECTION_NAMES as TAG_COLLECTION_NAMES } from '@worldbrain/memex-storage/lib/tags/constants'
-import { COLLECTION_NAMES as ANNOT_COLLECTION_NAMES } from '@worldbrain/memex-storage/lib/annotations/constants'
+import { COLLECTION_NAMES as TAG_COLLECTION_NAMES } from '@worldbrain/memex-common/lib/storage/modules/tags/constants'
+import { COLLECTION_NAMES as CONTENT_SHARE_COLLECTION_NAMES } from '@worldbrain/memex-common/lib/content-sharing/client-storage'
+import { COLLECTION_NAMES as ANNOT_COLLECTION_NAMES } from '@worldbrain/memex-common/lib/storage/modules/annotations/constants'
+import { COLLECTION_NAMES as LIST_COLLECTION_NAMES } from '@worldbrain/memex-common/lib/storage/modules/lists/constants'
 
-import {
+import type {
     SearchParams as OldSearchParams,
     SearchResult as OldSearchResult,
 } from '../types'
-import {
+import type {
     AnnotSearchParams,
     AnnotPage,
     PageUrlsByDay,
@@ -20,9 +22,15 @@ import { PageUrlMapperPlugin } from './page-url-mapper'
 import { reshapeParamsForOldSearch } from './utils'
 import { AnnotationsListPlugin } from './annots-list'
 import { SocialSearchPlugin } from './social-search'
-import { SocialPage } from 'src/social-integration/types'
+import type { SocialPage } from 'src/social-integration/types'
 import { SuggestPlugin, SuggestType } from '../plugins/suggest'
-import { Annotation } from 'src/annotations/types'
+import type { Annotation, AnnotListEntry } from 'src/annotations/types'
+import { getAnnotationPrivacyState } from '@worldbrain/memex-common/lib/content-sharing/utils'
+import type {
+    AnnotationPrivacyLevel,
+    SharedListMetadata,
+} from 'src/content-sharing/background/types'
+import type { PageListEntry } from 'src/custom-lists/background/types'
 
 export interface SearchStorageProps {
     storageManager: Storex
@@ -44,6 +52,14 @@ export type LegacySearch = (
 
 export default class SearchStorage extends StorageModule {
     static TAGS_COLL = TAG_COLLECTION_NAMES.tag
+    static ANNOTS_COLL = ANNOT_COLLECTION_NAMES.annotation
+    static ANNOT_LISTS_ENTRIES_COLL = ANNOT_COLLECTION_NAMES.listEntry
+    static PAGE_LISTS_ENTRIES_COLL = LIST_COLLECTION_NAMES.listEntry
+    static LISTS_COLL = LIST_COLLECTION_NAMES.list
+    static ANNOT_PRIVACY_LEVELS_COLL =
+        CONTENT_SHARE_COLLECTION_NAMES.annotationPrivacy
+    static LIST_METADATA_LEVELS_COLL =
+        CONTENT_SHARE_COLLECTION_NAMES.listMetadata
     static BMS_COLL = ANNOT_COLLECTION_NAMES.bookmark
     private legacySearch
 
@@ -64,6 +80,36 @@ export default class SearchStorage extends StorageModule {
                 collection: SearchStorage.TAGS_COLL,
                 operation: 'findObjects',
                 args: [{ url: { $in: '$annotUrls:string[]' } }],
+            },
+            findAnnotListEntriesByUrls: {
+                collection: SearchStorage.ANNOT_LISTS_ENTRIES_COLL,
+                operation: 'findObjects',
+                args: [{ url: { $in: '$annotUrls:string[]' } }],
+            },
+            findPageListEntriesByUrls: {
+                collection: SearchStorage.PAGE_LISTS_ENTRIES_COLL,
+                operation: 'findObjects',
+                args: [{ pageUrl: { $in: '$urls:string[]' } }],
+            },
+            findAnnotPrivacyLevelsByUrls: {
+                collection: SearchStorage.ANNOT_PRIVACY_LEVELS_COLL,
+                operation: 'findObjects',
+                args: [{ annotation: { $in: '$urls:string[]' } }],
+            },
+            findAnnotationsByUrls: {
+                collection: SearchStorage.ANNOTS_COLL,
+                operation: 'findObjects',
+                args: [{ url: { $in: '$urls:string[]' } }],
+            },
+            findListMetadataByIds: {
+                collection: SearchStorage.LIST_METADATA_LEVELS_COLL,
+                operation: 'findObjects',
+                args: [{ localId: { $in: '$listIds:string[]' } }],
+            },
+            findListById: {
+                collection: SearchStorage.LISTS_COLL,
+                operation: 'findObject',
+                args: { id: '$id:pk' },
             },
             searchAnnotsByDay: {
                 operation: AnnotationsListPlugin.LIST_BY_DAY_OP_ID,
@@ -134,72 +180,105 @@ export default class SearchStorage extends StorageModule {
         annotUrls: string[],
     ): Promise<{
         annotsToTags: Map<string, string[]>
+        annotsToLists: Map<string, number[]>
         bmUrls: Set<string>
     }> {
+        const privacyLevels: AnnotationPrivacyLevel[] = await this.operation(
+            'findAnnotPrivacyLevelsByUrls',
+            { urls: annotUrls },
+        )
         const bookmarks = await this.operation('findAnnotBookmarksByUrl', {
             annotUrls,
         })
 
+        const pageUrlToAnnotUrls = new Map<string, string[]>()
+        const annotsToLists = new Map<string, number[]>()
+
+        // Public annotations inherit shared lists from their parent pages, so we need to look them up differently
+        const publicAnnotUrls = privacyLevels
+            .filter(
+                (level) => getAnnotationPrivacyState(level.privacyLevel).public,
+            )
+            .map((level) => level.annotation)
+
+        if (publicAnnotUrls.length > 0) {
+            const publicAnnotations: Annotation[] = await this.operation(
+                'findAnnotationsByUrls',
+                { urls: publicAnnotUrls },
+            )
+
+            publicAnnotations.forEach(({ url, pageUrl }) => {
+                const prev = pageUrlToAnnotUrls.get(pageUrl) ?? []
+                pageUrlToAnnotUrls.set(pageUrl, [...prev, url])
+            })
+
+            const pageListEntries: PageListEntry[] = await this.operation(
+                'findPageListEntriesByUrls',
+                { urls: [...pageUrlToAnnotUrls.keys()] },
+            )
+            const sharedListMetadata: SharedListMetadata[] = await this.operation(
+                'findListMetadataByIds',
+                { listIds: [...pageListEntries.map((entry) => entry.listId)] },
+            )
+            const sharedListIds = new Set(
+                sharedListMetadata.map((meta) => meta.localId),
+            )
+
+            pageListEntries.forEach(({ listId, pageUrl }) => {
+                // Only concerned with shared lists
+                if (!sharedListIds.has(listId)) {
+                    return
+                }
+
+                const annotUrls = pageUrlToAnnotUrls.get(pageUrl) ?? []
+                for (const annotUrl of annotUrls) {
+                    const prev = annotsToLists.get(annotUrl) ?? []
+                    annotsToLists.set(annotUrl, [...prev, listId])
+                }
+            })
+        }
+
         const bmUrls = new Set<string>(bookmarks.map((bm) => bm.url))
 
         const tags = await this.operation('findAnnotTagsByUrl', { annotUrls })
-
         const annotsToTags = new Map<string, string[]>()
 
         tags.forEach(({ name, url }) => {
-            const current = annotsToTags.get(url) || []
+            const current = annotsToTags.get(url) ?? []
             annotsToTags.set(url, [...current, name])
         })
 
-        return { annotsToTags, bmUrls }
+        const annotListEntries: AnnotListEntry[] = await this.operation(
+            'findAnnotListEntriesByUrls',
+            {
+                annotUrls,
+            },
+        )
+
+        annotListEntries.forEach(({ listId, url }) => {
+            const current = annotsToLists.get(url) ?? []
+            annotsToLists.set(url, [...current, listId])
+        })
+
+        return { annotsToTags, annotsToLists, bmUrls }
     }
 
-    async getMergedAnnotsPages(
+    private async getMergedAnnotsPages(
         pageUrls: string[],
         params: AnnotSearchParams,
-        postPrefix = 'socialPosts:',
     ): Promise<AnnotPage[]> {
-        const results: Map<string, any> = new Map()
-        const pageIds: string[] = []
-        const postIds: number[] = []
-
-        // Split into post and page annots
-        pageUrls.forEach((url) =>
-            url.startsWith(postPrefix)
-                ? postIds.push(Number(url.split(postPrefix)[1]))
-                : pageIds.push(url),
-        )
+        const results = new Map<string, any>()
 
         const pages: AnnotPage[] = await this.operation(
             PageUrlMapperPlugin.MAP_OP_ID,
             {
-                pageUrls: pageIds,
+                pageUrls,
                 base64Img: params.base64Img,
                 upperTimeBound: params.endDate,
             },
         )
 
         pages.forEach((page) => results.set(page.url, page))
-
-        const socialResults: Map<
-            number,
-            Map<string, SocialPage>
-        > = await this.operation(SocialSearchPlugin.MAP_POST_IDS_OP_ID, {
-            postIds,
-        })
-
-        const socialPages: SocialPage[] = await this.operation(
-            PageUrlMapperPlugin.MAP_OP_SOCIAL_ID,
-            {
-                results: socialResults,
-                base64Img: params.base64Img,
-                upperTimeBound: params.endDate,
-            },
-        )
-
-        socialPages.forEach((page) =>
-            results.set(postPrefix + page.id.toString(), page),
-        )
 
         return pageUrls
             .map((url) => {
@@ -215,6 +294,16 @@ export default class SearchStorage extends StorageModule {
                 }
             })
             .filter((page) => page !== undefined)
+    }
+
+    private mergedAnnotsPagesToAnnotsById(
+        pages: AnnotPage[],
+    ): Map<string, Annotation> {
+        const results = new Map()
+        pages.forEach((page) =>
+            page.annotations.forEach((annot) => results.set(annot.url, annot)),
+        )
+        return results
     }
 
     /**
@@ -240,6 +329,7 @@ export default class SearchStorage extends StorageModule {
             [...pageUrls],
             params,
         )
+        const annotationsById = this.mergedAnnotsPagesToAnnotsById(pages)
 
         const clusteredResults: PageUrlsByDay = {}
 
@@ -250,19 +340,26 @@ export default class SearchStorage extends StorageModule {
             clusteredResults[day] = {}
             for (const [pageUrl, annots] of annotsByPage) {
                 annots.forEach((annot) =>
-                    reverseAnnotMap.set(annot.url, [day, pageUrl, annot]),
+                    reverseAnnotMap.set(annot.url, [
+                        day,
+                        pageUrl,
+                        annotationsById.get(annot.url),
+                    ]),
                 )
             }
         }
 
         // Get display data for all annots then map them back to their clusters
-        const { annotsToTags, bmUrls } = await this.findAnnotsDisplayData([
-            ...reverseAnnotMap.keys(),
-        ])
+        const {
+            annotsToTags,
+            annotsToLists,
+            bmUrls,
+        } = await this.findAnnotsDisplayData([...reverseAnnotMap.keys()])
 
         reverseAnnotMap.forEach(([day, pageUrl, annot]) => {
             // Delete any annots containing excluded tags
-            const tags = annotsToTags.get(annot.url) || []
+            const tags = annotsToTags.get(annot.url) ?? []
+            const lists = annotsToLists.get(annot.url) ?? []
 
             // Skip current annot if contains filtered tags
             if (
@@ -273,12 +370,13 @@ export default class SearchStorage extends StorageModule {
                 return
             }
 
-            const currentAnnots = clusteredResults[day][pageUrl] || []
+            const currentAnnots = clusteredResults[day][pageUrl] ?? []
             clusteredResults[day][pageUrl] = [
                 ...currentAnnots,
                 {
                     ...annot,
                     tags,
+                    lists,
                     hasBookmark: bmUrls.has(annot.url),
                 } as any,
             ]
@@ -318,21 +416,25 @@ export default class SearchStorage extends StorageModule {
             [...results.keys()],
             params,
         )
+        const annotationsById = this.mergedAnnotsPagesToAnnotsById(pages)
 
         const annotUrls = []
             .concat(...results.values())
             .map((annot) => annot.url)
 
         // Get display data for all annots then map them back to their clusters
-        const { annotsToTags, bmUrls } = await this.findAnnotsDisplayData(
-            annotUrls,
-        )
+        const {
+            annotsToTags,
+            annotsToLists,
+            bmUrls,
+        } = await this.findAnnotsDisplayData(annotUrls)
 
         return {
             docs: pages.map((page) => {
                 const annotations = results.get(page.pageId).map((annot) => ({
-                    ...annot,
-                    tags: annotsToTags.get(annot.url) || [],
+                    ...annotationsById.get(annot.url),
+                    tags: annotsToTags.get(annot.url) ?? [],
+                    lists: annotsToLists.get(annot.url) ?? [],
                     hasBookmark: bmUrls.has(annot.url),
                 }))
 

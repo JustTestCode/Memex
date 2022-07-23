@@ -3,7 +3,7 @@ import { Tabs } from 'webextension-polyfill-ts'
 import {
     SPECIAL_LIST_NAMES,
     SPECIAL_LIST_IDS,
-} from '@worldbrain/memex-storage/lib/lists/constants'
+} from '@worldbrain/memex-common/lib/storage/modules/lists/constants'
 
 import * as DATA from 'src/tests/common-fixtures.data'
 import {
@@ -81,6 +81,7 @@ function testSetupFactory() {
             tabManagement: setup.backgroundModules.tabManagement,
             tabsAPI: setup.browserAPIs.tabs,
             tabs: [DATA.TEST_TAB_1],
+            includeTitle: true,
         })
     }
 }
@@ -181,8 +182,8 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite('Bookmarks', [
                                         hasBookmark: true,
                                         screenshot: undefined,
                                         tags: [],
-                                        lists: [SPECIAL_LIST_NAMES.INBOX],
-                                        title: undefined,
+                                        lists: [SPECIAL_LIST_IDS.INBOX],
+                                        title: DATA.PAGE_1.title,
                                         url: DATA.PAGE_1.url,
                                         fullUrl: DATA.PAGE_1.fullUrl,
                                     },
@@ -313,8 +314,8 @@ export const INTEGRATION_TESTS = backgroundIntegrationTestSuite('Bookmarks', [
                                         hasBookmark: true,
                                         screenshot: undefined,
                                         tags: [],
-                                        lists: [SPECIAL_LIST_NAMES.INBOX],
-                                        title: undefined,
+                                        lists: [SPECIAL_LIST_IDS.INBOX],
+                                        title: DATA.PAGE_1.title,
                                         url: DATA.PAGE_1.url,
                                         fullUrl: DATA.PAGE_1.fullUrl,
                                     },

@@ -3,7 +3,7 @@ import styled, { ThemeProvider } from 'styled-components'
 import Markdown from '@worldbrain/memex-common/lib/common-ui/components/markdown'
 
 import { ButtonTooltip } from 'src/common-ui/components'
-import { getKeyName } from 'src/util/os-specific-key-names'
+import { getKeyName } from '@worldbrain/memex-common/lib/utils/os-specific-key-names'
 
 export interface MainInputProps<T = HTMLInputElement | HTMLTextAreaElement> {
     onKeyDown: React.KeyboardEventHandler
@@ -28,10 +28,9 @@ interface State {
 }
 
 export class MarkdownPreview extends React.Component<Props, State> {
-    static ALT_KEY = getKeyName({ key: 'alt' })
     static defaultProps: Partial<Props> = {
         isToggleKBShortcutKeyed: (e) =>
-            e.key === 'Enter' && e.altKey && !e.metaKey && !e.shiftKey,
+            e.key === 'Enter' && e.ctrlKey && !e.metaKey && !e.shiftKey,
         renderSecondaryBtn: () => null,
     }
 
@@ -124,7 +123,7 @@ export class MarkdownPreview extends React.Component<Props, State> {
                         {this.props.renderSecondaryBtn()}
                         {this.showPreviewBtn && (
                             <ButtonTooltip
-                                tooltipText={`${MarkdownPreview.ALT_KEY} + Enter`}
+                                tooltipText={`Control + Enter`}
                                 position="bottomSidebar"
                             >
                                 <PreviewBtn onClick={this.togglePreview}>
@@ -163,18 +162,6 @@ const PreviewBtn = styled.button`
     padding: 3px 5px;
     background: transparent;
     border-radius: 3px;
-
-    &:focus {
-        background-color: grey;
-    }
-
-    &:hover {
-        background-color: #e0e0e0;
-    }
-
-    &:focus {
-        background-color: #79797945;
-    }
 `
 
 const Container = styled.div`

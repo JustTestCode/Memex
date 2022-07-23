@@ -1,4 +1,4 @@
-import { Anchor } from 'src/highlighting/types'
+import type { Anchor } from 'src/highlighting/types'
 
 // export interface Annotation {
 //     /** Unique URL for this annotation. Used as more of an ID; probably not for display. */
@@ -28,17 +28,12 @@ export interface Annotation {
     comment?: string
     _body_terms?: string[]
     _comment_terms?: string[]
-    isBookmarked?: boolean
-    privacyLevel?: AnnotationPrivacyLevels
     tags: string[]
+    lists: number[]
+    isShared?: boolean
+    isBookmarked?: boolean
     isSocialPost?: boolean
-}
-
-export interface AnnotationPrivacyLevel {
-    annotation: string
-    privacyLevel: AnnotationPrivacyLevels
-    createdWhen: Date
-    updatedWhen?: Date
+    isBulkShareProtected?: boolean
 }
 
 export interface NewAnnotationOptions {
@@ -56,6 +51,7 @@ export interface AnnotationsManagerInterface {
         comment: string
         anchor: Anchor
         tags: string[]
+        lists: number[]
         bookmarked?: boolean
         isSocialPost?: boolean
     }): Promise<Annotation>
@@ -110,8 +106,6 @@ export type TextTruncator = (
 
 export type SelectionIndices = [number, number]
 
-export enum AnnotationPrivacyLevels {
-    PROTECTED = 0,
-    PRIVATE = 100,
-    SHARED = 200,
-}
+export type ListDetailsGetter = (
+    id: number,
+) => { name: string; isShared: boolean }

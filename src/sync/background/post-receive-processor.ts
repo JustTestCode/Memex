@@ -1,5 +1,5 @@
 import { SyncPostReceiveProcessor } from '@worldbrain/storex-sync'
-import { COLLECTION_NAMES as PAGES_COLLECTION_NAMES } from '@worldbrain/memex-storage/lib/pages/constants'
+import { COLLECTION_NAMES as PAGES_COLLECTION_NAMES } from '@worldbrain/memex-common/lib/storage/modules/pages/constants'
 
 import { FetchPageProcessor } from 'src/page-analysis/background/types'
 import { SharedSyncLogEntry } from '@worldbrain/storex-sync/lib/shared-sync-log/types'
@@ -45,7 +45,9 @@ export class PostReceiveProcessor {
     processor: SyncPostReceiveProcessor = async ({ entry, ...params }) => {
         if (this.shouldPostProcess(entry)) {
             try {
-                const pageData = await this.props.fetchPageData.process(
+                const {
+                    content: pageData,
+                } = await this.props.fetchPageData.process(
                     entry.data.value.fullUrl,
                 )
 

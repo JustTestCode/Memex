@@ -51,6 +51,7 @@ export default class RibbonHolder extends StatefulUIElement<
 
     private setAutoHide = (shouldAutoHide: boolean) => {
         this.isAnyPopupOpen = !shouldAutoHide
+        this.mouseInRibbon = !shouldAutoHide
 
         if (shouldAutoHide) {
             this.hideRibbonWithTimeout()
@@ -143,7 +144,8 @@ export default class RibbonHolder extends StatefulUIElement<
             if (
                 !this.mouseInHolder &&
                 !this.mouseInRibbon &&
-                !this.isAnyPopupOpen
+                !this.isAnyPopupOpen &&
+                !this.state.isSidebarOpen
             ) {
                 this.props.inPageUI.hideRibbon()
             }
